@@ -1,6 +1,6 @@
 # MVP
 
-> Status: planning — not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: in development — milestone M1 is complete; M2–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -61,6 +61,9 @@ Each milestone is one GitHub issue labelled `mvp`.
 
 <a id="m1"></a>
 ### M1 — Project skeleton, packaging and CI
+
+*Status: done.*
+
 
 `pyproject.toml` (Python ≥ 3.12, pinned dependencies from [ARCHITECTURE.md](ARCHITECTURE.md#dependencies), `[lz4]` and `[dev]` extras, `mc-usd-export` console script), `mcusd/` package skeleton matching the [component table](ARCHITECTURE.md#components), `pytest` wiring, GitHub Actions on Python 3.12 and 3.14. Covers **AC1**.
 

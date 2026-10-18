@@ -1,10 +1,10 @@
 # Architecture
 
-> Status: planning — not yet implemented. This document describes the intended design for the [MVP](MVP.md). Anything marked **(verify)** is a belief that an MVP milestone must confirm before relying on it.
+> Status: in development. This document describes the design for the [MVP](MVP.md); the package skeleton exists (milestone M1) and each component is filled in by the milestone named in its module docstring. Anything marked **(verify)** is a belief that an MVP milestone must confirm before relying on it.
 
 ## Components
 
-| Component | Module (planned) | Responsibility |
+| Component | Module | Responsibility |
 |---|---|---|
 | CLI | `mcusd/cli.py` | Parses arguments, wires the pipeline, reports progress and a summary. |
 | World locator | `mcusd/world/layout.py` | Given a world folder and a dimension, finds the region directory. Handles the pre-26.1 layout (`region/`, `DIM-1/region/`, `DIM1/region/`) and the 26.1+ layout (`dimensions/minecraft/<dimension>/region/`). |
