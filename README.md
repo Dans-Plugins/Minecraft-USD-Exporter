@@ -1,6 +1,6 @@
 # Minecraft-USD-Exporter
 
-> **Status: in development — not yet functional.** The package skeleton, CI, world locator, region-file reader, chunk decoder, bounding-box selection and block catalogue exist (milestones M1–M3); the rest of the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
+> **Status: in development — not yet functional.** The package skeleton, CI, world locator, region-file reader, chunk decoder, bounding-box selection, block catalogue and hidden-block culler exist (milestones M1–M4); the rest of the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
 
 ## Description
 
@@ -120,4 +120,4 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## Project Status
 
-In development — milestones M1 (package skeleton, packaging and CI), M2 (world locator and region-file reader) and M3 (chunk decoding, selection and block catalogue) are complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.
+In development — milestones M1 (package skeleton, packaging and CI), M2 (world locator and region-file reader), M3 (chunk decoding, selection and block catalogue) and M4 (hidden-block culling) are complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.

@@ -1,6 +1,6 @@
 # MVP
 
-> Status: in development — milestones M1–M3 are complete; M4–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: in development — milestones M1–M4 are complete; M5–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -85,6 +85,9 @@ Decode sections into `numpy` palette-index arrays, map bbox → regions/chunks a
 
 <a id="m4"></a>
 ### M4 — Hidden-block culling
+
+*Status: done.*
+
 
 Vectorised six-neighbour culling with a one-block halo across chunk and region boundaries; air always dropped; unknown blocks non-occluding. Covers **AC5**.
 
