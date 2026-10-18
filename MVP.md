@@ -1,6 +1,6 @@
 # MVP
 
-> Status: in development — milestone M1 is complete; M2–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: in development — milestones M1–M2 are complete; M3–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -69,6 +69,9 @@ Each milestone is one GitHub issue labelled `mvp`.
 
 <a id="m2"></a>
 ### M2 — World locator and region-file reader
+
+*Status: done.* AC2's CLI exit-code half is tested with the CLI in M7.
+
 
 Resolve region directories for pre-26.1 and 26.1+ layouts; implement the `.mca` header, all compression schemes and external `.mcc` chunks; hand decompressed NBT to `anvil-parser2`. Covers **AC2**, **AC3**.
 
