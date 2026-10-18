@@ -41,6 +41,10 @@ virtualenv gives a working `mc-usd-export --help`.
   generated fixtures under `tests/fixtures/`, produced by the
   [fixture recipe](ARCHITECTURE.md#fixture-world-recipe). Never commit a played world
   or any player data.
+- To regenerate the fixtures, run `python scripts/make_fixtures.py --accept-eula`
+  (it needs Java 21 for 1.21.11 and Java 25 for 26.3, passed with
+  `--java VERSION=PATH`; running it accepts the Minecraft EULA). It rewrites the
+  worlds, `fixtures.json` and `RECIPE.md` together; commit all three.
 - The tool is read-only: nothing may write into a world folder.
 
 ## Pull requests
