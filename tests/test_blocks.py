@@ -77,6 +77,16 @@ def test_colours_are_in_unit_range_and_deterministic():
     assert cat.info("minecraft:light_blue_wool").color != cat.info("minecraft:blue_wool").color
 
 
+def test_leaf_litter_has_a_builtin_brown_not_a_hashed_colour():
+    # Leaf litter carpets forest floors in 1.21.5+ worlds; without a built-in colour it
+    # got a hashed (often blue) one, which read as water in the preview renders.
+    color = BlockCatalogue().info("minecraft:leaf_litter").color
+    assert color == blocks.parse_color("#9a7440")
+    assert color != blocks.hashed_color("minecraft:leaf_litter")
+    red, green, blue = color
+    assert red > green > blue  # brown: warm, not blue
+    assert BlockCatalogue().info("minecraft:leaf_litter").opaque is False
+
 @pytest.mark.parametrize(
     "block_id, opaque",
     [

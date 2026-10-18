@@ -121,7 +121,23 @@ The image at the top of this README is reproducible from a checkout. It needs Bl
    python scripts/compose_preview.py terrain.png world.png examples/claims-showcase.json preview.png
    ```
 
-Blender's USD importer composes the overlay sublayer itself; no flattening is needed. Block colours are the exporter's built-in display colours (`primvars:displayColor`); blocks without a built-in colour, such as `leaf_litter`, get a hashed colour, which is why some forest floor shows as blue.
+Blender's USD importer composes the overlay sublayer itself; no flattening is needed. Block colours are the exporter's built-in display colours (`primvars:displayColor`); blocks without a built-in colour get a hashed colour. The still above was rendered before `leaf_litter` was given a built-in colour, which is why some forest floor in it shows as blue.
+
+#### Orbit animation
+
+![The same area from a camera circling it once; halfway round, the translucent faction-claim columns fade in over the terrain](docs/images/orbit-preview.gif)
+
+*One full camera orbit of the same area and example factions, rendered from `world.usda` with `scripts/render_orbit.py` in Blender 5.2.2 (240 frames at 960 × 540, Cycles CPU, 10 samples with denoising, about 7 s per frame on 4 threads). The GIF is cropped and reduced to 8 fps and 360 px wide to keep it small.*
+
+`scripts/render_orbit.py` renders one full camera orbit of an export as numbered PNG frames. The claims overlay is hidden for the first half of the loop, fades in, and fades out again just before the loop restarts. Only the nearest overlay surface along each ray is tinted, so large claims do not turn opaque where rows of chunk boxes stack up. From the same export as above:
+
+```bash
+blender -b --threads 4 --python scripts/render_orbit.py -- out/world.usda frames/ \
+  --frames 240 --samples 10 --elevation 40 --overlay-strength 1.4
+ffmpeg -framerate 24 -i frames/frame_%04d.png -c:v libx264 -pix_fmt yuv420p -crf 26 -movflags +faststart orbit.mp4
+```
+
+`--still 0.85` renders a single frame (to `frames/still.png`) instead, for a poster image.
 
 ### Documentation
 
