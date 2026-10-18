@@ -1,6 +1,6 @@
 # MVP
 
-> Status: in development — milestones M1–M4 are complete; M5–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: in development — milestones M1–M5 are complete; M6–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -93,6 +93,9 @@ Vectorised six-neighbour culling with a one-block halo across chunk and region b
 
 <a id="m5"></a>
 ### M5 — Base terrain USD layer
+
+*Status: done.* The inherited-prototype viewer check moves to the manual checklist (AC11), and the per-instance-array size measurement is recorded with the M7 fixture measurements.
+
 
 Write `terrain.usdc` (always crate format): abstract `/World/BlockLibrary` with a layer-wide block-ID table, one region-local `PointInstancer` per region with inherited prototypes, per-instance `primvars:mcusd:blockId` and `ids`, extents, kinds. Covers **AC6**.
 
