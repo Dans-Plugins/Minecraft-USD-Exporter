@@ -9,7 +9,7 @@
 | CLI | `mcusd/cli.py` | Parses arguments, wires the pipeline, reports progress and a summary. |
 | World locator | `mcusd/world/layout.py` | Given a world folder and a dimension, finds the region directory. Handles the pre-26.1 layout (`region/`, `DIM-1/region/`, `DIM1/region/`) and the 26.1+ layout (`dimensions/minecraft/<dimension>/region/`). |
 | Region reader | `mcusd/world/region.py` | Reads the 8 KiB `.mca` header, locates chunks, decompresses them (gzip, zlib, uncompressed, LZ4 when the optional `lz4` package is installed, and external `c.<x>.<z>.mcc` files for oversized chunks), and returns raw NBT. |
-| Chunk decoder | `mcusd/world/chunk.py` | Wraps `anvil-parser2`'s `anvil.Chunk` to turn a chunk's sections into dense `numpy` arrays of palette indices plus a per-chunk palette of block IDs. |
+| Chunk decoder | `mcusd/world/chunk.py` | Wraps `anvil-parser2`'s `anvil.Chunk` to turn a chunk's sections into dense `numpy` arrays of palette indices plus a per-chunk palette of block IDs (palettes decoded here; see [World reader](#world-reader)). |
 | Selection | `mcusd/select.py` | Converts a block-space bounding box into the set of region files and chunks to read, and clips decoded volumes to the box. |
 | Culler | `mcusd/cull.py` | Removes air and blocks whose six neighbours are all opaque full cubes. |
 | Block catalogue | `mcusd/blocks.py` | Maps a namespaced block ID to a stable prim-safe name, a display colour and an "opaque full cube" flag. Built-in table plus an override file. |
@@ -150,12 +150,32 @@ Region container rules implemented by `mcusd/world/region.py`, per the [Region f
 | 127 | Custom (third-party servers) | clear "unsupported" error naming the chunk |
 | +128 | Data stored externally in `c.<x>.<z>.mcc` | read the external file, then apply the base scheme |
 
-Two known limitations of `anvil-parser2` that the MVP accepts and documents:
+`mcusd/world/chunk.py` uses `anvil.Chunk` for the chunk envelope (`DataVersion`, `xPos`/`zPos`, the `sections` list) but decodes palettes and packed block-state indices itself, with vectorised `numpy` shifts instead of `anvil`'s per-block loop. Findings from worlds saved by vanilla 1.21.11 (DataVersion 4671) and 26.3 (DataVersion 5023) servers:
 
-- Section Y range is fixed at −4..19 (block Y −64..319) for 1.13+ data ([`chunk.py` L50-L54](https://github.com/0xTiger/anvil-parser2/blob/91a7eda55f0fb55a948d1072896430c29d906809/anvil/chunk.py#L50-L54)); datapack dimensions with other heights are out of scope.
-- Its NBT dependency (`nbt` 1.5.1) is pure Python; decoding speed is a measured risk (see [Performance](#performance-considerations)).
+- **26.x palette encoding changed.** 1.21.x writes each `block_states.palette` entry as a `{Name, Properties}` compound. 26.3 writes a property-less entry as a bare string (`"minecraft:stone"`) and an entry with properties as a compound with lowercase `id`/`properties` keys; a list mixing the two wraps each string in a compound under an empty-named tag. `anvil.Chunk.get_palette` understands only the 1.21.x shape (it raises `TypeError` on 26.3 chunks), so the decoder handles all three. The packed `data` long array is unchanged.
+- **Importing `anvil` patches `nbt`.** `anvil-parser2` replaces `nbt.TAG_Long_Array`'s format with an unsigned one on import (`anvil/empty_section.py`), so long arrays parse as unsigned; the decoder accepts either signedness.
+- Only the 1.18+ chunk format (DataVersion ≥ 2844, 21w43a) is supported; older chunks raise a clear error.
+- Chunks whose `Status` is not `minecraft:full` (generation unfinished, typically at the edge of explored terrain) are treated as not generated, matching what the game shows.
+- The block-Y range is fixed per vanilla dimension in `mcusd/world/layout.py` (overworld −64..319, Nether and End 0..255); sections outside it (such as the lighting-only sections at section Y −5 and 20) are ignored, and datapack dimensions with other heights are out of scope. `anvil`'s own fixed section range of −4..19 ([`chunk.py` L50-L54](https://github.com/0xTiger/anvil-parser2/blob/91a7eda55f0fb55a948d1072896430c29d906809/anvil/chunk.py#L50-L54)) is not relied on.
+- The `nbt` 1.5.1 parser behind `anvil.Chunk` is pure Python; decoding speed is a measured risk (see [Performance](#performance-considerations)).
 
-The 26.1+ `dimensions/minecraft/<dimension>/region/` layout was confirmed on a world saved by a vanilla 26.3 server, whose chunks (DataVersion 5023) decode through the same container and `anvil.Chunk` path as 1.21.11 (DataVersion 4671). No 26.x-specific chunk-format changes are known to this plan; compatibility with real 1.21.x and 26.x worlds is an explicit MVP acceptance criterion rather than an assumption.
+The 26.1+ `dimensions/minecraft/<dimension>/region/` layout was confirmed on the 26.3 world. Compatibility with real 1.21.x and 26.x worlds remains an explicit MVP acceptance criterion (AC10) rather than an assumption.
+
+### Block catalogue
+
+`mcusd/blocks.py` resolves each namespaced block ID to:
+
+- **A prim name.** `minecraft:<path>` with a `[a-z][a-z0-9_]*` path (every vanilla block) maps to the bare path (`grass_block`). Any other ID is written as `_` followed by its UTF-8 bytes, keeping `[a-z0-9]` and escaping every other byte as `_` plus two hex digits (`mymod:stone` → `_mymod_3astone`). The escape code is prefix-free and bare names never start with `_`, so names are valid USD identifiers and distinct IDs never share a name.
+- **A display colour.** A built-in table of approximate colours chosen by eye (no textures are read), dye-colour and wood-type prefixes, and a few suffix rules; anything else gets a deterministic colour hashed from its ID.
+- **An "opaque full cube" flag.** An explicit allow-list plus suffix rules (`_planks`, `_ore`, `_concrete`, `_wool`, `_terracotta`, `_bricks`, `_log`, `_wood`, `_stem`, `_hyphae`, `_tiles`, `_copper`, with exceptions such as `pumpkin_stem` and `big_dripleaf_stem`); air variants are never opaque and unknown blocks (including every non-`minecraft` namespace) are non-occluding.
+
+An optional JSON override file (`--block-overrides`, wired in M7) maps a block ID to `{"color": "#rrggbb", "opaque": true|false}`, e.g. `{"mymod:marble": {"color": "#e8e4dc", "opaque": true}}`.
+
+A layer-wide `BlockIdTable` gives every block ID one integer (index 0 is `minecraft:air`); it is what M5 stores in `primvars:mcusd:blockId` and `/World/BlockLibrary.mcusd:blockIds`.
+
+### Selection
+
+`mcusd/select.py` maps the inclusive bounding box to regions and chunks with floor division (`x >> 4`, `x >> 9`), clamps Y to the dimension, and streams one dense `uint16` volume per region covering the part of the box inside it plus a one-block halo; region coordinates are generated directly from the box and regions without a region file are skipped, so a very large box over a small world costs nothing extra. Halo cells are filled from neighbouring chunks (decoded through a small LRU cache) only where they lie inside the selection; outside the selection, outside the dimension or not generated they stay air, i.e. non-occluding.
 
 ## Claims overlay input contract
 
