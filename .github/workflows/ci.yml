@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: AC1 - plain install in a fresh virtualenv
+        run: |
+          python -m venv /tmp/ac1-venv
+          /tmp/ac1-venv/bin/pip install .
+          /tmp/ac1-venv/bin/mc-usd-export --help
+      - name: Install with extras
+        run: python -m pip install ".[lz4,dev]"
+      - name: Run tests
+        run: python -m pytest

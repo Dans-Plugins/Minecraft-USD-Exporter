@@ -1,6 +1,6 @@
 # Minecraft-USD-Exporter
 
-> **Status: planning — not yet implemented.** This repository currently contains planning documents only. Nothing below can be installed or run yet; the commands show the intended interface.
+> **Status: in development — not yet functional.** The package skeleton, dependencies and CI exist (milestone M1); the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
 
 ## Description
 
@@ -19,7 +19,7 @@ Planning documents:
 
 ## Installation
 
-*Planned — not yet available.*
+*The package installs, but the exporter is not functional until milestone M7 lands.*
 
 ### First Time Installation
 
@@ -70,11 +70,11 @@ Please fill out a bug report [here](https://github.com/Dans-Plugins/Minecraft-US
 ## Contributing
 
 - The MVP is tracked as issues labelled [`mvp`](https://github.com/Dans-Plugins/Minecraft-USD-Exporter/issues?q=is%3Aissue+label%3Amvp); each maps to a milestone in [MVP.md](MVP.md#milestones).
-- A `CONTRIBUTING.md` will be added with the project skeleton (milestone M1).
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, test command and conventions.
 
 ## Testing
 
-*Planned.* The test suite will use `pytest`.
+The test suite uses `pytest`. After the development install below:
 
 Linux:
 
@@ -84,11 +84,11 @@ Windows:
 
     py -m pytest
 
-If pytest reports all tests passed, the tests have passed.
+If pytest reports all tests passed, the tests have passed. CI runs the same suite on Linux with Python 3.12 and 3.14.
 
 ## Development
 
-This is a command-line Python tool rather than a server plugin, so there is no Docker test server. Development will use a virtual environment:
+This is a command-line Python tool rather than a server plugin, so there is no Docker test server. Development uses a virtual environment (Python 3.12 or newer):
 
 Linux:
 
@@ -120,4 +120,4 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## Project Status
 
-Planning — not yet implemented. See [MVP.md](MVP.md) for the roadmap.
+In development — milestone M1 (package skeleton, packaging and CI) is complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.
