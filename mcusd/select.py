@@ -122,6 +122,10 @@ class ChunkSource:
             self._regions.popitem(last=False)
         return region
 
+    def has_region(self, region_x: int, region_z: int) -> bool:
+        """Whether a region file exists for ``(region_x, region_z)``."""
+        return self._region(region_x, region_z) is not None
+
     def chunk(self, chunk_x: int, chunk_z: int) -> np.ndarray | None:
         """Block-index volume ``(height, 16, 16)`` of a chunk, or ``None`` if absent."""
         key = (chunk_x, chunk_z)
@@ -212,13 +216,17 @@ def clamp_to_dimension(bbox: BBox, dimension: Dimension) -> BBox | None:
 
 
 def region_volume(source: ChunkSource, bbox: BBox, region_x: int, region_z: int, halo: int = 1) -> RegionVolume | None:
-    """Read the part of ``bbox`` inside region ``(region_x, region_z)``, plus a halo."""
+    """Read the part of ``bbox`` inside region ``(region_x, region_z)``, plus a halo.
+
+    Returns ``None`` when the region does not overlap the box or has no region file
+    (nothing in it can be exported).
+    """
     dim = source.dimension
     selection = clamp_to_dimension(bbox, dim)
     if selection is None:
         return None
     core = selection.intersect(region_bounds(region_x, region_z, dim.min_y, dim.max_y))
-    if core is None:
+    if core is None or not source.has_region(region_x, region_z):
         return None
     extended = core.expand(halo)
     ids = np.zeros(extended.shape, dtype=np.uint16)
@@ -229,8 +237,13 @@ def region_volume(source: ChunkSource, bbox: BBox, region_x: int, region_z: int,
 
 
 def iter_region_volumes(source: ChunkSource, bbox: BBox, halo: int = 1) -> Iterator[RegionVolume]:
-    """Yield one :class:`RegionVolume` per region touched by ``bbox``, in Z-then-X order."""
-    for region_x, region_z in chunks_by_region(bbox):
-        volume = region_volume(source, bbox, region_x, region_z, halo)
-        if volume is not None:
-            yield volume
+    """Yield one :class:`RegionVolume` per region touched by ``bbox``, in Z-then-X order.
+
+    Region coordinates are generated directly from the box, so planning costs no
+    memory beyond the current region however large the box is.
+    """
+    for region_z in range(bbox.z1 >> 9, (bbox.z2 >> 9) + 1):
+        for region_x in range(bbox.x1 >> 9, (bbox.x2 >> 9) + 1):
+            volume = region_volume(source, bbox, region_x, region_z, halo)
+            if volume is not None:
+                yield volume

@@ -165,9 +165,9 @@ The 26.1+ `dimensions/minecraft/<dimension>/region/` layout was confirmed on the
 
 `mcusd/blocks.py` resolves each namespaced block ID to:
 
-- **A prim name.** `minecraft:<path>` with a `[a-z0-9_]` path (every vanilla block) maps to the bare path (`grass_block`); any other ID is sanitised and suffixed with an 8-hex-digit SHA-1 of the full ID (`mymod__stone_1a2b3c4d`), so names are valid USD identifiers and distinct IDs never share a name.
+- **A prim name.** `minecraft:<path>` with a `[a-z][a-z0-9_]*` path (every vanilla block) maps to the bare path (`grass_block`). Any other ID is written as `_` followed by its UTF-8 bytes, keeping `[a-z0-9]` and escaping every other byte as `_` plus two hex digits (`mymod:stone` → `_mymod_3astone`). The escape code is prefix-free and bare names never start with `_`, so names are valid USD identifiers and distinct IDs never share a name.
 - **A display colour.** A built-in table of approximate colours chosen by eye (no textures are read), dye-colour and wood-type prefixes, and a few suffix rules; anything else gets a deterministic colour hashed from its ID.
-- **An "opaque full cube" flag.** An explicit allow-list plus suffix rules (`_planks`, `_ore`, `_concrete`, `_wool`, `_terracotta`, `_bricks`, `_log`, `_wood`, `_stem`, `_hyphae`, `_tiles`, `_copper`, with exceptions such as `pumpkin_stem`); air variants are never opaque and unknown blocks (including every non-`minecraft` namespace) are non-occluding.
+- **An "opaque full cube" flag.** An explicit allow-list plus suffix rules (`_planks`, `_ore`, `_concrete`, `_wool`, `_terracotta`, `_bricks`, `_log`, `_wood`, `_stem`, `_hyphae`, `_tiles`, `_copper`, with exceptions such as `pumpkin_stem` and `big_dripleaf_stem`); air variants are never opaque and unknown blocks (including every non-`minecraft` namespace) are non-occluding.
 
 An optional JSON override file (`--block-overrides`, wired in M7) maps a block ID to `{"color": "#rrggbb", "opaque": true|false}`, e.g. `{"mymod:marble": {"color": "#e8e4dc", "opaque": true}}`.
 
@@ -175,7 +175,7 @@ A layer-wide `BlockIdTable` gives every block ID one integer (index 0 is `minecr
 
 ### Selection
 
-`mcusd/select.py` maps the inclusive bounding box to regions and chunks with floor division (`x >> 4`, `x >> 9`), clamps Y to the dimension, and builds one dense `uint16` volume per region covering the part of the box inside it plus a one-block halo. Halo cells are filled from neighbouring chunks (decoded through a small LRU cache) only where they lie inside the selection; outside the selection, outside the dimension or not generated they stay air, i.e. non-occluding.
+`mcusd/select.py` maps the inclusive bounding box to regions and chunks with floor division (`x >> 4`, `x >> 9`), clamps Y to the dimension, and streams one dense `uint16` volume per region covering the part of the box inside it plus a one-block halo; region coordinates are generated directly from the box and regions without a region file are skipped, so a very large box over a small world costs nothing extra. Halo cells are filled from neighbouring chunks (decoded through a small LRU cache) only where they lie inside the selection; outside the selection, outside the dimension or not generated they stay air, i.e. non-occluding.
 
 ## Claims overlay input contract
 

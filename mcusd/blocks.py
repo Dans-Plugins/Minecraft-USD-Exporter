@@ -109,7 +109,7 @@ _OPAQUE_SUFFIXES = (
 # Suffix matches that are nevertheless not opaque full cubes.
 _NOT_OPAQUE = frozenset({
     "chiseled_bookshelf", "pumpkin_stem", "melon_stem", "attached_pumpkin_stem",
-    "attached_melon_stem",
+    "attached_melon_stem", "big_dripleaf_stem",
 })
 
 
@@ -129,21 +129,29 @@ def split_id(block_id: str) -> tuple[str, str]:
     return namespace, path
 
 
+_BARE = re.compile(r"[a-z][a-z0-9_]*")
+_PLAIN_BYTES = frozenset(b"abcdefghijklmnopqrstuvwxyz0123456789")
+
+
 def prim_name(block_id: str) -> str:
     """Stable, valid USD prim name for a block ID; distinct IDs give distinct names.
 
-    ``minecraft:<path>`` with a path of ``[a-z0-9_]`` (every vanilla block) maps to
-    the bare path, which is injective. Any other ID is sanitised and suffixed with
-    an 8-hex-digit hash of the full ID, so it cannot collide with a vanilla name.
+    Two disjoint naming spaces:
+
+    * ``minecraft:<path>`` whose path matches ``[a-z][a-z0-9_]*`` (every vanilla
+      block) maps to the bare path, e.g. ``grass_block``. Bare names never start
+      with ``_``.
+    * Every other ID is encoded as ``_`` followed by its UTF-8 bytes, keeping
+      ``[a-z0-9]`` as-is and writing any other byte as ``_`` plus two lowercase hex
+      digits, e.g. ``mymod:stone`` -> ``_mymod_3astone``. This code is prefix-free,
+      so the encoding is injective, and the leading ``_`` keeps it apart from bare
+      names.
     """
     namespace, path = split_id(block_id)
-    if namespace == "minecraft" and re.fullmatch(r"[a-z_][a-z0-9_]*", path):
+    if namespace == "minecraft" and ":" in block_id and _BARE.fullmatch(path):
         return path
-    base = re.sub(r"[^A-Za-z0-9_]", "_", f"{namespace}__{path}")
-    if base[0].isdigit():
-        base = "_" + base
-    digest = hashlib.sha1(block_id.encode("utf-8")).hexdigest()[:8]
-    return f"{base}_{digest}"
+    encoded = "".join(chr(b) if b in _PLAIN_BYTES else f"_{b:02x}" for b in block_id.encode("utf-8"))
+    return "_" + encoded
 
 
 def hashed_color(key: str) -> Color:

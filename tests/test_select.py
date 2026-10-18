@@ -134,3 +134,24 @@ def test_chunk_cache_avoids_redecoding(tmp_path):
     bbox = BBox(500, 0, 0, 520, 5, 5)
     list(iter_region_volumes(source, bbox))
     assert source.chunks_decoded == 2
+
+
+def test_huge_selection_streams_without_planning_every_chunk(tmp_path, monkeypatch):
+    """A 100,000-block-wide box over a one-chunk world yields one volume, quickly."""
+    import mcusd.select as select_module
+
+    _, source = _world(tmp_path, [(0, 0)])
+
+    def fail(*args, **kwargs):  # the iterator must not enumerate every chunk
+        raise AssertionError("chunks_by_region called")
+
+    monkeypatch.setattr(select_module, "chunks_by_region", fail)
+    bbox = BBox(-50_000, 0, -50_000, 50_000, 3, 50_000)
+    volumes = list(iter_region_volumes(source, bbox))
+    assert [(v.region_x, v.region_z) for v in volumes] == [(0, 0)]
+
+
+def test_regions_without_a_file_are_skipped(tmp_path):
+    _, source = _world(tmp_path, [(0, 0)])
+    assert region_volume(source, BBox(-5, 0, -5, 5, 5, 5), -1, -1) is None
+    assert source.has_region(0, 0) and not source.has_region(-1, -1)

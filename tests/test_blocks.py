@@ -19,6 +19,11 @@ TRICKY_IDS = [
     "my-mod:stone",
     "mymod:Stone",
     "minecraft:mymod__stone",
+    "minecraft:mymod__stone_7f308680",  # once collided with mymod:stone (review on #11)
+    "minecraft:_mymod_3astone",
+    "_mymod_3astone",
+    "stone",
+    "minecraft:Stone",
     "3rdparty:block",
     "minecraft:9lives",
     "create:andesite_casing",
@@ -41,6 +46,20 @@ def test_every_builtin_name_is_valid_and_distinct():
     names = [prim_name(b) for b in ids]
     assert all(Sdf.Path.IsValidIdentifier(n) for n in names)
     assert len(set(names)) == len(set(ids))
+
+
+def test_colliding_pair_from_review_gets_distinct_names():
+    cat = BlockCatalogue()
+    a = cat.info("mymod:stone").prim_name
+    b = cat.info("minecraft:mymod__stone_7f308680").prim_name
+    assert a != b
+    assert a == "_mymod_3astone"
+
+
+def test_encoded_names_never_look_bare():
+    for block_id in TRICKY_IDS:
+        name = prim_name(block_id)
+        assert name.startswith("_") or block_id == f"minecraft:{name}"
 
 
 def test_vanilla_names_are_bare_and_stable():
@@ -80,6 +99,8 @@ def test_colours_are_in_unit_range_and_deterministic():
         ("minecraft:stone_brick_stairs", False),
         ("minecraft:short_grass", False),
         ("minecraft:pumpkin_stem", False),
+        ("minecraft:big_dripleaf_stem", False),
+        ("minecraft:crimson_stem", True),
         ("minecraft:chiseled_bookshelf", False),
         ("mymod:stone", False),  # unknown namespaces never occlude
         ("minecraft:some_future_block", False),
