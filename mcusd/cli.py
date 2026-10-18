@@ -5,7 +5,8 @@ Parses arguments, wires the pipeline, reports progress and a summary::
     mc-usd-export WORLD --bbox X1 Y1 Z1 X2 Y2 Z2 --out DIR
                   [--dimension overworld|the_nether|the_end]
                   [--claims PATH] [--world-uuid UUID]
-                  [--block-overrides PATH] [--binary] [--quiet]
+                  [--block-overrides PATH] [--binary]
+                  [--summary-json PATH] [--quiet]
 
 Exit status: 0 on success, 2 for invalid input (bad arguments, not a world,
 unreadable claims or overrides), 1 when the world data itself cannot be read.
