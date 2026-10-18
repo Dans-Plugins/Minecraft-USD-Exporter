@@ -87,16 +87,16 @@ Overlays are listed before terrain in `subLayers` so their opinions are stronger
 ```
 /World                                   Xform  (kind = assembly)
 ├── /World/BlockLibrary                  class  (abstract: never rendered)
-│   ├── stone                            Mesh   unit cube, displayColor
+│   ├── stone                            Mesh   unit cube, displayColor, mcusd:namespacedId
 │   ├── grass_block                      Mesh
 │   └── ...
 ├── /World/Terrain                       Xform  (kind = group)
-│   ├── r_0_0                            Xform  translate = (0, 0, 0)
+│   ├── r_0_0                            Xform  (kind = group) translate = (0, 0, 0)
 │   │   └── Blocks                       PointInstancer  ids, primvars:mcusd:blockId (per instance)
 │   │       └── Prototypes               Scope
 │   │           ├── stone                Mesh   (inherits </World/BlockLibrary/stone>)
 │   │           └── grass_block          Mesh   (inherits </World/BlockLibrary/grass_block>)
-│   ├── r_-1_0                           Xform  translate = (-512, 0, 0)
+│   ├── r_n1_0                           Xform  translate = (-512, 0, 0)
 │   └── ...
 └── /World/Overlays                      Scope
     └── Claims                           Xform  (defined in overlays/claims.usda)
@@ -108,9 +108,10 @@ Overlays are listed before terrain in `subLayers` so their opinions are stronger
 Design choices:
 
 - **Unit and axes.** One block is one metre (`metersPerUnit = 1`). Minecraft's axes (+X east, +Y up, +Z south) form a right-handed, Y-up system, so they map to USD's right-handed `upAxis = "Y"` with no conversion. A block at integer coordinates `(x, y, z)` occupies the cube `[x, x+1] × [y, y+1] × [z, z+1]`; prototype cubes have their minimum corner at the origin.
+- **Region prim names.** Region `(x, z)` is `r_<x>_<z>`, with an `n` prefix for negative coordinates (`r_n1_0` for region −1, 0) because `-` is not valid in a USD prim name. Library meshes and prototypes are named by the [block catalogue](#block-catalogue), and each library mesh records its namespaced ID in a `mcusd:namespacedId` string attribute, which the prototypes inherit.
 - **One `PointInstancer` per region file.** Regions give a natural unit for streaming the export, for future payloads (load-on-demand) and for visibility toggling, and keep each instancer's arrays to a manageable size.
 - **Region-local positions.** Each region's `Xform` carries a `translate` to the region's block origin, and instance `positions` are region-local (0–511 on X and Z). Instance positions are `point3f` (32-bit float), which represents integers exactly only up to 2²⁴; world coordinates can reach ±30,000,000, so storing absolute positions would lose precision far from spawn. The `translate` op is double precision.
-- **Shared prototypes via a `class` prim.** `/World/BlockLibrary` is an abstract `class` prim, so its meshes are never drawn at the origin. Each instancer's `Prototypes` scope holds lightweight prims that `inherit` the library entry, keeping a single source of truth for geometry and colour while following the convention that prototypes live beneath the instancer. **(verify)** that `usdview` and Blender resolve inherited prototype meshes correctly; fallback is to author each prototype as a full `Mesh` under each instancer (geometry is 8 points, so duplication is cheap).
+- **Shared prototypes via a `class` prim.** `/World/BlockLibrary` is an abstract `class` prim, so its meshes are never drawn at the origin. Each instancer's `Prototypes` scope holds lightweight prims that `inherit` the library entry, keeping a single source of truth for geometry and colour while following the convention that prototypes live beneath the instancer. Through the USD API (milestone M5) the prototypes compose as `Mesh` prims carrying the library's points and colour, and the abstract library is skipped by default traversal. **(verify)** that `usdview` and Blender render inherited prototype meshes correctly; neither viewer is available in the build environment, so this is part of the manual viewer checklist (AC11). The fallback is to author each prototype as a full `Mesh` under each instancer (geometry is 8 points, so duplication is cheap).
 - **Per-instance block IDs from the start.** Every terrain `PointInstancer` authors, alongside `protoIndices` and `positions`, two per-instance arrays of the same length (see [Decisions](#decisions)):
   - `primvars:mcusd:blockId` — `int[]`, interpolation `vertex` (one value per instance), indexing into a layer-wide block-ID table stored as a `string[]` attribute `mcusd:blockIds` on `/World/BlockLibrary` (namespaced IDs such as `minecraft:stone`). Unlike `protoIndices`, which index each instancer's own `Prototypes` and so differ between regions, this ID means the same block type in every region, so an overlay can select, recolour or hide one block type across the whole stage.
   - `ids` — `int64[]`, a stable per-instance identifier derived from the block's region-local position (`(y − ymin) × 512 × 512 + z × 512 + x`, with region-local `x`, `z` in 0–511 and `ymin` the dimension's minimum block Y, −64 for the overworld; unique within an instancer), so a later overlay layer can cut terrain away by authoring `invisibleIds` on a region's instancer, or override individual instances, without regenerating terrain.
@@ -131,7 +132,7 @@ Design choices:
 | `UsdGeom.Mesh.Define`, `CreatePointsAttr`, `CreateFaceVertexCountsAttr`, `CreateFaceVertexIndicesAttr`, `CreateExtentAttr`, `CreateDisplayColorPrimvar` | Unit-cube prototypes and claim boxes. |
 | `UsdGeom.PointInstancer.Define`, `CreatePrototypesRel`, `CreateProtoIndicesAttr`, `CreatePositionsAttr`, `CreateExtentAttr`, `CreateIdsAttr` | Per-region block instancing, including per-instance `ids`. |
 | `UsdGeom.PrimvarsAPI(prim).CreatePrimvar("mcusd:blockId", Sdf.ValueTypeNames.IntArray, UsdGeom.Tokens.vertex)` | Per-instance block-ID primvar on each terrain instancer. |
-| `Vt.Vec3fArray.FromNumpy`, `Vt.IntArray.FromNumpy`, `Vt.Int64Array.FromNumpy` | Hand `numpy` arrays to USD without a Python-level loop. **(verify)** availability and zero-copy behaviour in `usd-core` 26.8. |
+| `Vt.Vec3fArray.FromNumpy`, `Vt.IntArray.FromNumpy`, `Vt.Int64Array.FromNumpy` | Hand `numpy` arrays to USD without a Python-level loop. Available in `usd-core` 26.8 and used for every per-instance array (M5); whether the hand-off is zero-copy has not been measured. |
 | `UsdGeom.Xformable.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble)` | Region and claim-box placement. |
 | `Kind.Tokens`, `Usd.ModelAPI.SetKind` | `assembly` / `group` kinds so tools treat the hierarchy sensibly. |
 
@@ -283,6 +284,7 @@ Running a server requires accepting the Minecraft EULA (`eula=true`) on the mach
 - **Memory:** streaming per region bounds peak memory; a region volume at 512 × 384 × 512 with `uint16` palette indices is ~200 MB, so the MVP processes one region at a time in 16-chunk-wide strips if needed **(verify)** by measurement.
 - **Decode speed:** the pure-Python `nbt` library behind `anvil-parser2` is the likely bottleneck. The MVP measures blocks/second on the fixture worlds and records it in the README; replacing the NBT layer is post-MVP.
 - **Array hand-off:** all positions/indices are built as `numpy` arrays and passed to USD in one call per attribute.
+- **Terrain layer memory:** an `Sdf.Layer` keeps every authored value in memory until it is saved, which would make memory grow with the whole export. `TerrainWriter` therefore saves `terrain.usdc` after each region and reloads it. Saving a crate layer appends the new data, and reloading turns the values into lazy, file-backed ones. In a measurement with 8 synthetic regions of 3 million instances each, resident memory stayed at about 137 MB with this, against 785 MB and growing without it, and the final file was identical in size.
 - **File size:** crate (`.usdc`) for terrain, always; culling typically removes most underground solid blocks. Per-instance `ids` and `primvars:mcusd:blockId` add about 12 bytes per instance before compression (see [Stage / prim layout](#stage--prim-layout)). Target: a 512 × 512 surface export loads in `usdview` interactively on a typical laptop (measured, not promised).
 - **Parallelism:** regions are independent; a process pool over regions is a straightforward post-MVP speed-up because each region writes its own prim subtree.
 
