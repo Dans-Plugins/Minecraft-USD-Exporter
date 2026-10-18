@@ -1,6 +1,6 @@
 # MVP
 
-> Status: in development — milestones M1–M6 are complete; M7 is not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: MVP implemented — milestones M1–M7 are complete and AC1–AC10 pass in CI; AC11 (manual viewer check) is still to be performed. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -70,7 +70,7 @@ Each milestone is one GitHub issue labelled `mvp`.
 <a id="m2"></a>
 ### M2 — World locator and region-file reader
 
-*Status: done.* AC2's CLI exit-code half is tested with the CLI in M7.
+*Status: done.* AC2's CLI exit-code half is tested in `tests/test_cli.py` (M7).
 
 
 Resolve region directories for pre-26.1 and 26.1+ layouts; implement the `.mca` header, all compression schemes and external `.mcc` chunks; hand decompressed NBT to `anvil-parser2`. Covers **AC2**, **AC3**.
@@ -78,7 +78,7 @@ Resolve region directories for pre-26.1 and 26.1+ layouts; implement the `.mca` 
 <a id="m3"></a>
 ### M3 — Chunk decoding, bounding-box selection and block catalogue
 
-*Status: done.* AC4 is tested on synthetic worlds in both palette encodings; the committed fixture worlds are added to it in M7.
+*Status: done.* AC4 is tested on synthetic worlds in both palette encodings and, since M7, through end-to-end exports of the fixture worlds.
 
 
 Decode sections into `numpy` palette-index arrays, map bbox → regions/chunks and clip, and build the block catalogue (prim-safe names, colours, opaque-full-cube flags, override file). Covers **AC4**.
@@ -94,7 +94,7 @@ Vectorised six-neighbour culling with a one-block halo across chunk and region b
 <a id="m5"></a>
 ### M5 — Base terrain USD layer
 
-*Status: done.* The inherited-prototype viewer check moves to the manual checklist (AC11), and the per-instance-array size measurement is recorded with the M7 fixture measurements.
+*Status: done.* The inherited-prototype viewer check is part of the manual checklist (AC11); the per-instance-array size cost is recorded in the README.
 
 
 Write `terrain.usdc` (always crate format): abstract `/World/BlockLibrary` with a layer-wide block-ID table, one region-local `PointInstancer` per region with inherited prototypes, per-instance `primvars:mcusd:blockId` and `ids`, extents, kinds. Covers **AC6**.
@@ -102,12 +102,15 @@ Write `terrain.usdc` (always crate format): abstract `/World/BlockLibrary` with 
 <a id="m6"></a>
 ### M6 — Claims input contract and overlay layer
 
-*Status: done.* The claims layer is wired into the CLI and root stage in M7.
+*Status: done.* The claims layer is wired into the CLI and root stage by M7.
 
 
 Implement the claims contract and the three input adapters, then write `overlays/claims.usda` with one translucent-box `PointInstancer` per faction. Covers **AC8**.
 
 <a id="m7"></a>
 ### M7 — CLI, root stage assembly and end-to-end verification
+
+*Status: done, except AC11.* The manual viewer checklist (AC11) has not been performed: `usdview` and Blender were not available where the MVP was built. The steps and a results table are in the README's [Viewer checklist](README.md#viewer-checklist-ac11).
+
 
 Wire the CLI (including `--binary`), write `world.usda` with sublayers and metadata, write the fixture recipe (`scripts/make_fixtures.py` + `tests/fixtures/RECIPE.md`) and commit the 1.21.x and 26.x fixture worlds it generates, run end-to-end tests, perform the manual viewer checklist and document usage and measured performance in the README. Covers **AC7**, **AC9**, **AC10**, **AC11**.

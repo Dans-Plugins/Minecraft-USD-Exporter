@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: in development. This document describes the design for the [MVP](MVP.md); the package skeleton exists (milestone M1) and each component is filled in by the milestone named in its module docstring. Anything marked **(verify)** is a belief that an MVP milestone must confirm before relying on it.
+> Status: MVP implemented (milestones M1–M7). This document describes the design as built, including findings made during implementation. Items marked **(verify)** are still unconfirmed; the main one is the manual viewer check (AC11). Anything marked **(verify)** is a belief that an MVP milestone must confirm before relying on it.
 
 ## Components
 
@@ -116,7 +116,7 @@ Design choices:
   - `primvars:mcusd:blockId` — `int[]`, interpolation `vertex` (one value per instance), indexing into a layer-wide block-ID table stored as a `string[]` attribute `mcusd:blockIds` on `/World/BlockLibrary` (namespaced IDs such as `minecraft:stone`). Unlike `protoIndices`, which index each instancer's own `Prototypes` and so differ between regions, this ID means the same block type in every region, so an overlay can select, recolour or hide one block type across the whole stage.
   - `ids` — `int64[]`, a stable per-instance identifier derived from the block's region-local position (`(y − ymin) × 512 × 512 + z × 512 + x`, with region-local `x`, `z` in 0–511 and `ymin` the dimension's minimum block Y, −64 for the overworld; unique within an instancer), so a later overlay layer can cut terrain away by authoring `invisibleIds` on a region's instancer, or override individual instances, without regenerating terrain.
 
-  **File-size tradeoff:** this adds about 12 bytes per instance (4 for `blockId`, 8 for `ids`) before crate compression, on top of about 16 bytes for `positions` (12) and `protoIndices` (4) — up to roughly 75 % more per-instance data in `terrain.usdc`. It is accepted so that overlays can cut away and recolour terrain without re-exporting; actual sizes are measured on the fixture worlds in M7.
+  **File-size tradeoff:** this adds about 12 bytes per instance (4 for `blockId`, 8 for `ids`) before crate compression, on top of about 16 bytes for `positions` (12) and `protoIndices` (4) — up to roughly 75 % more per-instance data in `terrain.usdc` before compression. It is accepted so that overlays can cut away and recolour terrain without re-exporting. Measured after crate compression (milestone M7, by re-exporting the same layer without the two arrays), the actual cost is about 4 % of `terrain.usdc` on the fixture worlds and 7.5 % on a 256 × 256-block export; see the README's *Measured performance*.
 - **`displayColor` instead of materials.** MVP prototypes carry `primvars:displayColor`; no textures are produced (see [non-goals](CONCEPT.md#non-goals)).
 - **Binary terrain, ASCII everything else by default.** `terrain.usdc` always uses the crate format for size and load speed; the root and overlay layers default to `.usda` so they can be read and diffed, and `--binary` switches them to `.usdc`.
 
@@ -170,7 +170,7 @@ The 26.1+ `dimensions/minecraft/<dimension>/region/` layout was confirmed on the
 - **A display colour.** A built-in table of approximate colours chosen by eye (no textures are read), dye-colour and wood-type prefixes, and a few suffix rules; anything else gets a deterministic colour hashed from its ID.
 - **An "opaque full cube" flag.** An explicit allow-list plus suffix rules (`_planks`, `_ore`, `_concrete`, `_wool`, `_terracotta`, `_bricks`, `_log`, `_wood`, `_stem`, `_hyphae`, `_tiles`, `_copper`, with exceptions such as `pumpkin_stem` and `big_dripleaf_stem`); air variants are never opaque and unknown blocks (including every non-`minecraft` namespace) are non-occluding.
 
-An optional JSON override file (`--block-overrides`, wired in M7) maps a block ID to `{"color": "#rrggbb", "opaque": true|false}`, e.g. `{"mymod:marble": {"color": "#e8e4dc", "opaque": true}}`.
+An optional JSON override file (`--block-overrides`) maps a block ID to `{"color": "#rrggbb", "opaque": true|false}`, e.g. `{"mymod:marble": {"color": "#e8e4dc", "opaque": true}}`.
 
 A layer-wide `BlockIdTable` gives every block ID one integer (index 0 is `minecraft:air`); it is what M5 stores in `primvars:mcusd:blockId` and `/World/BlockLibrary.mcusd:blockIds`.
 
@@ -266,7 +266,7 @@ No dependency on Medieval Factions code; the coupling is the JSON shape document
 
 ### Fixture world recipe
 
-Fixtures are generated, never copied from a played world, so they contain no player data and anyone can regenerate them. The recipe is planned as a script, `scripts/make_fixtures.py`, with a matching `tests/fixtures/RECIPE.md` that records exactly what was run; both land with milestone M7.
+Fixtures are generated, never copied from a played world, so they contain no player data and anyone can regenerate them. The recipe is the script `scripts/make_fixtures.py`, which writes `tests/fixtures/RECIPE.md` (what was run: versions, `server.jar` hashes, seeds, Java) and `tests/fixtures/fixtures.json` (the same plus the recorded counts). The committed fixtures are vanilla **1.21.11** (seed `8675309`, pre-26.1 layout) and **26.3** (seed `42`, 26.1+ layout). World generation turned out not to be bit-for-bit reproducible between runs: decoration near the force-loaded chunks can differ slightly, so regenerating may change the recorded counts, and `fixtures.json` is always rewritten together with the worlds.
 
 | Parameter | Value |
 |---|---|
@@ -283,8 +283,8 @@ Running a server requires accepting the Minecraft EULA (`eula=true`) on the mach
 
 ## Performance considerations
 
-- **Memory:** streaming per region bounds peak memory; a region volume at 512 × 384 × 512 with `uint16` palette indices is ~200 MB, so the MVP processes one region at a time in 16-chunk-wide strips if needed **(verify)** by measurement.
-- **Decode speed:** the pure-Python `nbt` library behind `anvil-parser2` is the likely bottleneck. The MVP measures blocks/second on the fixture worlds and records it in the README; replacing the NBT layer is post-MVP.
+- **Memory:** streaming per region bounds peak memory; a region volume at 512 × 384 × 512 with `uint16` palette indices is ~200 MB, so the MVP processes one region at a time and culls it in 64-layer Y slabs. Measured: a 256 × 256-block, full-height export (4 regions, about 1.07 million visible blocks) peaked at about 245 MB resident.
+- **Decode speed:** the pure-Python `nbt` library behind `anvil-parser2` was expected to be the bottleneck. In practice the whole pipeline scanned about 16 million blocks per second on a 256-chunk export (README, *Measured performance*); replacing the NBT layer is post-MVP.
 - **Array hand-off:** all positions/indices are built as `numpy` arrays and passed to USD in one call per attribute.
 - **Terrain layer memory:** an `Sdf.Layer` keeps every authored value in memory until it is saved, which would make memory grow with the whole export. `TerrainWriter` therefore saves `terrain.usdc` after each region and reloads it. Saving a crate layer appends the new data, and reloading turns the values into lazy, file-backed ones. In a measurement with 8 synthetic regions of 3 million instances each, resident memory stayed at about 137 MB with this, against 785 MB and growing without it, and the final file was identical in size.
 - **File size:** crate (`.usdc`) for terrain, always; culling typically removes most underground solid blocks. Per-instance `ids` and `primvars:mcusd:blockId` add about 12 bytes per instance before compression (see [Stage / prim layout](#stage--prim-layout)). Target: a 512 × 512 surface export loads in `usdview` interactively on a typical laptop (measured, not promised).
@@ -303,5 +303,5 @@ Recorded 2026-10-17 by the project owner. Each resolves an item that was previou
 
 1. **World UUID auto-detection.** Bukkit-family servers are commonly understood to keep a world UUID in a `uid.dat` file in the world folder, but this has not been verified against current Spigot/Paper source or a real 26.x server for this plan. Until it is, `--world-uuid` is explicit.
 2. **Spigot/Paper folder layout on 26.x.** The 26.1 `dimensions/` layout above is from the vanilla level-format documentation; whether Spigot/Paper servers (which historically split dimensions into separate world folders) adopt it is to be checked against a real server world. (The committed fixtures come from vanilla servers, so they do not answer this.)
-3. **Inherited prototypes.** Confirm `usdview` and Blender both render `PointInstancer` prototypes that `inherit` from an abstract `class` prim; otherwise fall back to per-instancer meshes.
+3. **Inherited prototypes.** Composition is confirmed through the USD API (M5). Still to confirm: that `usdview` and Blender both render `PointInstancer` prototypes that `inherit` from an abstract `class` prim; otherwise fall back to per-instancer meshes. This is part of the manual viewer checklist (AC11) in the README.
 4. **Gson output of `factionId` in `claimed_chunks.json`.** `MfFactionId` is a Kotlin `@JvmInline value class` over `String`, so the field is expected to serialise as a plain string, matching the REST `ClaimDto` — confirm against a real file.

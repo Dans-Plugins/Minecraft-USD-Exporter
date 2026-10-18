@@ -1,6 +1,6 @@
 # Minecraft-USD-Exporter
 
-> **Status: in development — not yet functional.** The package skeleton, CI, world locator, region-file reader, chunk decoder, bounding-box selection, block catalogue, hidden-block culler, terrain USD layer writer and Medieval Factions claims overlay exist (milestones M1–M6); the rest of the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
+> **Status: MVP implemented (version 0.1.0, not yet released).** All seven MVP milestones are merged. The automated acceptance criteria (AC1–AC10) pass in CI, including end-to-end exports of committed 1.21.11 and 26.3 fixture worlds. The manual viewer check (AC11: `usdview` and Blender) has **not been performed yet**; see [Viewer checklist](#viewer-checklist-ac11). The package is not published to PyPI.
 
 ## Description
 
@@ -11,15 +11,13 @@ Minecraft-USD-Exporter is a Python tool that reads Minecraft Java Edition world 
 - Output uses **USD layer composition**: a base terrain layer plus optional overlay layers. The first overlay shows [Medieval Factions](https://github.com/Dans-Plugins/Medieval-Factions) territory claims, read from Medieval Factions' own claim data through a documented JSON contract.
 - Results open in `usdview`, Blender, or any USD-capable tool.
 
-Planning documents:
+Design documents:
 
 - [CONCEPT.md](CONCEPT.md) — problem, audience, non-goals, prior art, and the world-reading library decision.
 - [MVP.md](MVP.md) — the smallest end-to-end slice, acceptance criteria and milestones.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — components, data flow, USD stage layout, the claims input contract, dependencies, testing and performance.
 
 ## Installation
-
-*The package installs, but the exporter is not functional until milestone M7 lands.*
 
 ### First Time Installation
 
@@ -34,8 +32,6 @@ Planning documents:
 
 ## Usage
 
-*Planned interface:*
-
 ```bash
 mc-usd-export /path/to/world \
   --dimension overworld \
@@ -45,9 +41,61 @@ mc-usd-export /path/to/world \
 usdview out/world.usda
 ```
 
-The root and overlay layers are written as ASCII `.usda` by default; add `--binary` to write them as `.usdc`. The terrain layer is always binary (`terrain.usdc`) because it is large.
+This writes `out/world.usda` (root), `out/terrain.usdc` (instanced, culled blocks) and, with `--claims`, `out/overlays/claims.usda` (Medieval Factions territory). The root and overlay layers are written as ASCII `.usda` by default; add `--binary` to write them as `.usdc`. The terrain layer is always binary (`terrain.usdc`) because it is large.
+
+Try it on a committed fixture world from a checkout:
+
+```bash
+mc-usd-export tests/fixtures/world-26.3 --bbox -16 -64 -16 15 319 15 \
+  --claims examples/claims.json --out out/
+```
+
+| Option | Meaning |
+|---|---|
+| `WORLD` | World folder (the one containing `level.dat`). Pre-26.1 (`region/`, `DIM-1/`, `DIM1/`) and 26.1+ (`dimensions/minecraft/<dimension>/`) layouts are both read. |
+| `--bbox X1 Y1 Z1 X2 Y2 Z2` | Inclusive block-space box; any two opposite corners. Y is clamped to the dimension. Required. |
+| `--out DIR` | Output directory. Must not be inside the world folder. Required. |
+| `--dimension` | `overworld` (default), `the_nether` or `the_end` (also accepted with a `minecraft:` prefix). |
+| `--claims PATH` | Claims input: an `mcusd-claims` JSON file, a saved Medieval Factions `GET /api/claims` array, or a Medieval Factions JSON-storage directory (`claimed_chunks.json` + `factions.json`). See the [contract](ARCHITECTURE.md#claims-overlay-input-contract); [`examples/claims.json`](examples/claims.json) is a sample. Only claims overlapping the box are drawn. |
+| `--world-uuid UUID` | Which world's claims to draw; required when the claims cover more than one world. |
+| `--block-overrides PATH` | JSON mapping block IDs to `{"color": "#rrggbb", "opaque": true\|false}`. |
+| `--binary` | Write the root and overlay layers as `.usdc`. |
+| `--summary-json PATH` | Also write the export summary (counts per region, file sizes, timings) as JSON. |
+| `-q`, `--quiet` | Print only errors and warnings. |
+
+Exit status: `0` on success, `2` for invalid input (bad arguments, not a world, unreadable claims or overrides), `1` when world data cannot be read (for example a corrupt region file or a chunk using unsupported custom compression). LZ4-compressed worlds need the `[lz4]` extra.
 
 Always export from a **copy** of a world folder or from a stopped server; the tool only reads, but reading files a running server is writing can give inconsistent results.
+
+### Measured performance
+
+Measured on 2026-10-17 on a Linux machine shared with other workloads (Python 3.12.13, usd-core 26.8). The figures are a single run each, not benchmarks.
+
+| Export | Blocks scanned | Visible instances | Time (pipeline) | `terrain.usdc` | Peak RSS |
+|---|---|---|---|---|---|
+| `tests/fixtures/world-1.21.11`, 4 chunks, full height | 393,216 | 38,587 | 0.13 s | 506 KB | 137 MB |
+| `tests/fixtures/world-26.3`, 4 chunks, full height | 393,216 | 37,203 | 0.11 s | 489 KB | 137 MB |
+| Fresh 26.3 world (seed 42), 256 × 256 blocks (256 chunks, 4 regions), full height | 25,165,824 | 1,069,183 | 1.56 s (about 16 M blocks/s) | 14.3 MB | 245 MB |
+
+The per-instance `ids` and `primvars:mcusd:blockId` arrays (see [Decisions](ARCHITECTURE.md#decisions)) cost about 4 % of `terrain.usdc` on the fixtures and 7.5 % on the 256 × 256 export after crate compression. That is far below the up-to-75 % uncompressed estimate, measured by re-exporting the same layer with and without those two arrays. `terrain.usdc` averages about 13 bytes per visible block.
+
+### Viewer checklist (AC11)
+
+*Not yet performed.* `usdview` (which is not part of the `usd-core` wheel) and Blender were not available where the MVP was built, so this manual check is still owed. To perform it, export a fixture with claims as shown above, then:
+
+1. `usdview out/world.usda`: terrain blocks appear as coloured cubes and the four claim boxes appear as translucent coloured columns over them.
+2. In usdview's layer stack, mute `overlays/claims.usda`: the claim boxes disappear and the terrain is unchanged.
+3. Blender (File → Import → Universal Scene Description) on `out/world.usda`: the stage loads, with terrain imported as instanced point clouds.
+4. Confirm the inherited prototypes (`Prototypes/<block>` prims inheriting `/World/BlockLibrary/<block>`) render in both viewers. If either does not, the documented fallback is per-instancer meshes ([ARCHITECTURE.md](ARCHITECTURE.md#stage--prim-layout)).
+
+Record the results and tool versions here:
+
+| Check | usdview (version) | Blender (version) |
+|---|---|---|
+| Terrain visible | not yet checked | not yet checked |
+| Claim boxes visible | not yet checked | not yet checked |
+| Muting the overlay hides the boxes | not yet checked | n/a |
+| Inherited prototypes render | not yet checked | not yet checked |
 
 ### Documentation
 
@@ -120,4 +168,4 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## Project Status
 
-In development — milestones M1 (package skeleton, packaging and CI), M2 (world locator and region-file reader), M3 (chunk decoding, selection and block catalogue), M4 (hidden-block culling), M5 (terrain USD layer) and M6 (claims overlay) are complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.
+MVP implemented: milestones M1–M7 are merged and AC1–AC10 pass in CI; the manual viewer check (AC11) is still to be done. See [MVP.md](MVP.md#milestones).

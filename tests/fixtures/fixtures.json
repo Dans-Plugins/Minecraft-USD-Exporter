@@ -1,0 +1,337 @@
+{
+  "exporterVersion": "0.1.0",
+  "fixtures": {
+    "1.21.11": {
+      "folder": "world-1.21.11",
+      "layout": "pre-26.1",
+      "seed": 8675309,
+      "serverJarSha1": "64bb6d763bed0a9f1d632ec347938594144943ed",
+      "serverJarSha256": "f83b8e093865806f931c7e34aae41b177d4c076335263dd124c75d6d65dd1726",
+      "serverJarUrl": "https://piston-data.mojang.com/v1/objects/64bb6d763bed0a9f1d632ec347938594144943ed/server.jar",
+      "java": "openjdk version \"21.0.7\" 2025-04-15",
+      "keptChunks": [
+        [
+          -1,
+          -1
+        ],
+        [
+          0,
+          -1
+        ],
+        [
+          -1,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "counts": {
+        "bbox": [
+          -16,
+          -64,
+          -16,
+          15,
+          319,
+          15
+        ],
+        "visible": 38587,
+        "regions": {
+          "r.-1.-1": {
+            "visible": 6161,
+            "hidden": 26744
+          },
+          "r.0.-1": {
+            "visible": 10381,
+            "hidden": 20147
+          },
+          "r.-1.0": {
+            "visible": 8686,
+            "hidden": 23818
+          },
+          "r.0.0": {
+            "visible": 13359,
+            "hidden": 18330
+          }
+        },
+        "samples": [
+          {
+            "x": -16,
+            "y": -64,
+            "z": -16,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": -16,
+            "y": 0,
+            "z": -16,
+            "block": "minecraft:deepslate"
+          },
+          {
+            "x": -16,
+            "y": 62,
+            "z": -16,
+            "block": "minecraft:water"
+          },
+          {
+            "x": -1,
+            "y": -64,
+            "z": -1,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": -1,
+            "y": 0,
+            "z": -1,
+            "block": "minecraft:deepslate"
+          },
+          {
+            "x": -1,
+            "y": 62,
+            "z": -1,
+            "block": "minecraft:water"
+          },
+          {
+            "x": 0,
+            "y": -64,
+            "z": 0,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "block": "minecraft:deepslate"
+          },
+          {
+            "x": 0,
+            "y": 62,
+            "z": 0,
+            "block": "minecraft:water"
+          },
+          {
+            "x": 15,
+            "y": -64,
+            "z": 15,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": 15,
+            "y": 0,
+            "z": 15,
+            "block": "minecraft:dirt"
+          },
+          {
+            "x": 15,
+            "y": 66,
+            "z": 15,
+            "block": "minecraft:oak_leaves"
+          },
+          {
+            "x": -16,
+            "y": -64,
+            "z": 15,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": -16,
+            "y": 0,
+            "z": 15,
+            "block": "minecraft:deepslate"
+          },
+          {
+            "x": -16,
+            "y": 62,
+            "z": 15,
+            "block": "minecraft:water"
+          },
+          {
+            "x": 7,
+            "y": -64,
+            "z": -9,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "z": -9,
+            "block": "minecraft:deepslate"
+          },
+          {
+            "x": 7,
+            "y": 63,
+            "z": -9,
+            "block": "minecraft:grass_block"
+          }
+        ]
+      }
+    },
+    "26.3": {
+      "folder": "world-26.3",
+      "layout": "26.1+",
+      "seed": 42,
+      "serverJarSha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+      "serverJarSha256": "d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64",
+      "serverJarUrl": "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar",
+      "java": "openjdk version \"25.0.4.1\" 2026-08-18 LTS",
+      "keptChunks": [
+        [
+          -1,
+          -1
+        ],
+        [
+          0,
+          -1
+        ],
+        [
+          -1,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "counts": {
+        "bbox": [
+          -16,
+          -64,
+          -16,
+          15,
+          319,
+          15
+        ],
+        "visible": 37203,
+        "regions": {
+          "r.-1.-1": {
+            "visible": 8413,
+            "hidden": 25852
+          },
+          "r.0.-1": {
+            "visible": 7145,
+            "hidden": 26007
+          },
+          "r.-1.0": {
+            "visible": 9436,
+            "hidden": 24162
+          },
+          "r.0.0": {
+            "visible": 12209,
+            "hidden": 19906
+          }
+        },
+        "samples": [
+          {
+            "x": -16,
+            "y": -64,
+            "z": -16,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": -16,
+            "y": 0,
+            "z": -16,
+            "block": "minecraft:gravel"
+          },
+          {
+            "x": -16,
+            "y": 62,
+            "z": -16,
+            "block": "minecraft:water"
+          },
+          {
+            "x": -1,
+            "y": -64,
+            "z": -1,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": -1,
+            "y": 0,
+            "z": -1,
+            "block": "minecraft:granite"
+          },
+          {
+            "x": -1,
+            "y": 62,
+            "z": -1,
+            "block": "minecraft:water"
+          },
+          {
+            "x": 0,
+            "y": -64,
+            "z": 0,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "block": "minecraft:granite"
+          },
+          {
+            "x": 0,
+            "y": 62,
+            "z": 0,
+            "block": "minecraft:water"
+          },
+          {
+            "x": 15,
+            "y": -64,
+            "z": 15,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": 15,
+            "y": 0,
+            "z": 15,
+            "block": "minecraft:deepslate"
+          },
+          {
+            "x": 15,
+            "y": 62,
+            "z": 15,
+            "block": "minecraft:water"
+          },
+          {
+            "x": -16,
+            "y": -64,
+            "z": 15,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": -16,
+            "y": 0,
+            "z": 15,
+            "block": "minecraft:gravel"
+          },
+          {
+            "x": -16,
+            "y": 72,
+            "z": 15,
+            "block": "minecraft:grass_block"
+          },
+          {
+            "x": 7,
+            "y": -64,
+            "z": -9,
+            "block": "minecraft:bedrock"
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "z": -9,
+            "block": "minecraft:deepslate_lapis_ore"
+          },
+          {
+            "x": 7,
+            "y": 68,
+            "z": -9,
+            "block": "minecraft:oak_leaves"
+          }
+        ]
+      }
+    }
+  }
+}
