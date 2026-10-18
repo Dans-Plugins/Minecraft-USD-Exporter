@@ -63,6 +63,7 @@ _COLORS = {
     "furnace": "6e6e6e", "torch": "f5d06a", "farmland": "5a3b1f", "dirt_path": "947a41",
     "magma_block": "8e3f1a", "prismarine": "63a29a", "sea_lantern": "acc7be", "sponge": "c3c04a",
     "terracotta": "985e43", "hay_block": "a68b0c", "bone_block": "e1ddc9",
+    "leaf_litter": "9a7440",
 }
 
 _DYE = {
