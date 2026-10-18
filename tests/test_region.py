@@ -172,3 +172,66 @@ def test_out_of_range_local_coordinates(tmp_path):
 )
 def test_xxh32_reference_vectors(data, expected):
     assert R.xxh32(data) == expected
+
+
+def test_length_beyond_allocated_sectors_is_rejected(tmp_path):
+    """A damaged length must not read into the neighbouring chunk's sectors."""
+    first, second = chunk_bytes(0, 0), chunk_bytes(1, 0)
+    path = write_region(tmp_path / "r.0.0.mca", {(0, 0): first, (1, 0): second}, scheme=R.UNCOMPRESSED)
+    data = bytearray(path.read_bytes())
+    start = 2 * 4096  # chunk (0, 0) occupies sector 2; chunk (1, 0) follows in sector 3
+    struct.pack_into(">I", data, start, 4096 + 100)
+    path.write_bytes(bytes(data))
+    region = RegionFile(path)
+    with pytest.raises(RegionError, match="exceeds its 1 allocated sector"):
+        region.read_chunk(0, 0)
+    assert region.read_chunk(1, 0) == second
+
+
+def _lz4_blocks(stream):
+    pos, blocks = 0, []
+    while pos < len(stream):
+        magic, token, clen, dlen, checksum = struct.unpack_from("<8sBiii", stream, pos)
+        assert magic == b"LZ4Block"
+        blocks.append((token, clen, dlen, checksum))
+        pos += 21 + clen
+    return blocks
+
+
+def test_lz4_writer_matches_lz4_java_block_layout():
+    payload = bytes(200_000)  # compressible, spans four 64 KiB blocks
+    blocks = _lz4_blocks(R.compress(payload, R.LZ4))
+    assert [b[2] for b in blocks] == [65536, 65536, 65536, 200_000 - 3 * 65536, 0]
+    assert all(token & 0x0F == 6 for token, *_ in blocks)  # 64 KiB, as the game writes (0x26)
+    assert blocks[0][0] & 0xF0 == 0x20
+    assert R.decompress(R.compress(payload, R.LZ4), R.LZ4) == payload
+
+
+def test_lz4_writer_uses_raw_blocks_for_incompressible_data():
+    payload = bytes(random_bytes(70_000))
+    stream = R.compress(payload, R.LZ4)
+    blocks = _lz4_blocks(stream)
+    assert blocks[0][0] & 0xF0 == 0x10 and blocks[0][1] == blocks[0][2] == 65536
+    assert R.decompress(stream, R.LZ4) == payload
+
+
+def random_bytes(n):
+    import random
+
+    return random.Random(5).randbytes(n)
+
+
+def test_lz4_checksum_mismatch_is_detected():
+    payload = bytes(random_bytes(3000))  # incompressible -> stored as a raw block
+    stream = bytearray(R.compress(payload, R.LZ4))
+    assert stream[8] & 0xF0 == 0x10
+    stream[21 + 100] ^= 0xFF  # flip one payload byte, leave the checksum alone
+    with pytest.raises(RegionError, match="checksum mismatch"):
+        R.decompress(bytes(stream), R.LZ4)
+
+
+def test_lz4_block_larger_than_declared_size_is_rejected():
+    stream = bytearray(R.compress(bytes(5000), R.LZ4))
+    stream[8] = (stream[8] & 0xF0) | 0  # declare 1 KiB blocks
+    with pytest.raises(RegionError, match="block size"):
+        R.decompress(bytes(stream), R.LZ4)

@@ -9,7 +9,7 @@ Container rules follow the `Region file format
 <https://minecraft.wiki/w/Region_file_format>`_ article. LZ4 chunks (scheme 4)
 are stored in lz4-java's ``LZ4BlockOutputStream`` framing (``LZ4Block`` magic,
 then per-block token, little-endian compressed/decompressed lengths and an
-XXH32 checksum); this was confirmed against a region written by a vanilla
+XXH32 checksum, which is verified on read); this was confirmed against a region written by a vanilla
 1.21.11 server with ``region-file-compression=lz4``.
 
 :func:`write_region` is the inverse, used to build synthetic region files in
@@ -56,6 +56,8 @@ _LZ4_HEADER = struct.Struct("<8sBiii")  # magic, token, compressed, decompressed
 _LZ4_METHOD_RAW = 0x10
 _LZ4_METHOD_LZ4 = 0x20
 _LZ4_CHECKSUM_SEED = 0x9747B28C  # lz4-java LZ4BlockOutputStream default
+_LZ4_LEVEL_BASE = 10  # the token's low nibble is log2(max block size) - 10
+_LZ4_BLOCK_SIZE = 1 << 16  # lz4-java's default (token level 6), as the game writes
 
 
 class RegionError(Exception):
@@ -159,6 +161,11 @@ class RegionFile:
         (length,) = struct.unpack_from(">I", self._data, start)
         if length < 1:
             raise RegionError(f"{self._where(local_x, local_z)}: zero-length chunk")
+        if length + 4 > entry.sector_count * SECTOR_BYTES:
+            raise RegionError(
+                f"{self._where(local_x, local_z)}: chunk length {length} exceeds its "
+                f"{entry.sector_count} allocated sector(s)"
+            )
         scheme_byte = self._data[start + 4]
         payload = self._data[start + 5 : start + 4 + length]
         scheme = scheme_byte & ~EXTERNAL_FLAG
@@ -258,25 +265,44 @@ def _lz4_stream_decompress(data: bytes) -> bytes:
         if len(block) != compressed_len:
             raise RegionError("truncated LZ4 block")
         method = token & 0xF0
+        if decompressed_len > 1 << ((token & 0x0F) + _LZ4_LEVEL_BASE):
+            raise RegionError("LZ4 block is larger than its header's block size allows")
         if method == _LZ4_METHOD_RAW:
-            out.append(block)
+            if compressed_len != decompressed_len:
+                raise RegionError("raw LZ4 block has mismatched lengths")
+            decoded = bytes(block)
         elif method == _LZ4_METHOD_LZ4:
             if lz4_block is None:
                 lz4_block = _require_lz4()
-            out.append(lz4_block.decompress(block, uncompressed_size=decompressed_len))
+            decoded = lz4_block.decompress(block, uncompressed_size=decompressed_len)
         else:
             raise RegionError(f"unknown LZ4Block method 0x{method:02x}")
+        if len(decoded) != decompressed_len:
+            raise RegionError("LZ4 block decompressed to the wrong length")
+        if xxh32(decoded, _LZ4_CHECKSUM_SEED) & 0x0FFFFFFF != _checksum:
+            raise RegionError("LZ4 block checksum mismatch (corrupt chunk data)")
+        out.append(decoded)
         pos += compressed_len
     return b"".join(out)
 
 
 def _lz4_stream_compress(data: bytes) -> bytes:
+    """Encode like lz4-java's ``LZ4BlockOutputStream`` with its default 64 KiB blocks."""
     lz4_block = _require_lz4()
-    compressed = lz4_block.compress(data, store_size=False)
-    checksum = xxh32(data, _LZ4_CHECKSUM_SEED) & 0x0FFFFFFF
-    header = _LZ4_HEADER.pack(_LZ4_MAGIC, _LZ4_METHOD_LZ4, len(compressed), len(data), checksum)
-    end = _LZ4_HEADER.pack(_LZ4_MAGIC, _LZ4_METHOD_RAW, 0, 0, 0)
-    return header + compressed + end
+    level = (_LZ4_BLOCK_SIZE - 1).bit_length() - _LZ4_LEVEL_BASE
+    out = bytearray()
+    for start in range(0, len(data), _LZ4_BLOCK_SIZE):
+        chunk = data[start : start + _LZ4_BLOCK_SIZE]
+        checksum = xxh32(chunk, _LZ4_CHECKSUM_SEED) & 0x0FFFFFFF
+        compressed = lz4_block.compress(chunk, store_size=False)
+        if len(compressed) >= len(chunk):
+            method, compressed = _LZ4_METHOD_RAW, chunk
+        else:
+            method = _LZ4_METHOD_LZ4
+        out += _LZ4_HEADER.pack(_LZ4_MAGIC, method | level, len(compressed), len(chunk), checksum)
+        out += compressed
+    out += _LZ4_HEADER.pack(_LZ4_MAGIC, _LZ4_METHOD_RAW | level, 0, 0, 0)
+    return bytes(out)
 
 
 _P1, _P2, _P3, _P4, _P5 = 2654435761, 2246822519, 3266489917, 668265263, 374761393
@@ -296,13 +322,17 @@ def xxh32(data: bytes, seed: int = 0) -> int:
         v2 = (seed + _P2) & _M32
         v3 = seed & _M32
         v4 = (seed - _P1) & _M32
-        while pos <= n - 16:
-            a, b, c, d = struct.unpack_from("<4I", data, pos)
-            v1 = (_rotl((v1 + a * _P2) & _M32, 13) * _P1) & _M32
-            v2 = (_rotl((v2 + b * _P2) & _M32, 13) * _P1) & _M32
-            v3 = (_rotl((v3 + c * _P2) & _M32, 13) * _P1) & _M32
-            v4 = (_rotl((v4 + d * _P2) & _M32, 13) * _P1) & _M32
-            pos += 16
+        stripes = n // 16
+        for a, b, c, d in struct.iter_unpack("<4I", memoryview(data)[: stripes * 16]):
+            v1 = (v1 + a * _P2) & _M32
+            v1 = (((v1 << 13) | (v1 >> 19)) * _P1) & _M32
+            v2 = (v2 + b * _P2) & _M32
+            v2 = (((v2 << 13) | (v2 >> 19)) * _P1) & _M32
+            v3 = (v3 + c * _P2) & _M32
+            v3 = (((v3 << 13) | (v3 >> 19)) * _P1) & _M32
+            v4 = (v4 + d * _P2) & _M32
+            v4 = (((v4 << 13) | (v4 >> 19)) * _P1) & _M32
+        pos = stripes * 16
         h = (_rotl(v1, 1) + _rotl(v2, 7) + _rotl(v3, 12) + _rotl(v4, 18)) & _M32
     else:
         h = (seed + _P5) & _M32
