@@ -1,0 +1,14 @@
+{
+  "format": "mcusd-claims",
+  "version": 1,
+  "factions": [
+    { "id": "6f1c2a9e-3b7d-4e58-9a0c-1d2e3f405162", "name": "Northreach", "color": "#3366cc" },
+    { "id": "b2d4f6a8-0c1e-4325-8769-abcdef012345", "name": "Saltmarsh", "color": "#cc6633" }
+  ],
+  "claims": [
+    { "worldId": "00000000-0000-4000-8000-000000000001", "x": -1, "z": -1, "factionId": "6f1c2a9e-3b7d-4e58-9a0c-1d2e3f405162" },
+    { "worldId": "00000000-0000-4000-8000-000000000001", "x": 0, "z": -1, "factionId": "6f1c2a9e-3b7d-4e58-9a0c-1d2e3f405162" },
+    { "worldId": "00000000-0000-4000-8000-000000000001", "x": -1, "z": 0, "factionId": "b2d4f6a8-0c1e-4325-8769-abcdef012345" },
+    { "worldId": "00000000-0000-4000-8000-000000000001", "x": 0, "z": 0, "factionId": "b2d4f6a8-0c1e-4325-8769-abcdef012345" }
+  ]
+}

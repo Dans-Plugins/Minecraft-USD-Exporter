@@ -30,6 +30,9 @@ def _hex(value: str) -> Color:
     return tuple(int(value[i : i + 2], 16) / 255.0 for i in (0, 2, 4))  # type: ignore[return-value]
 
 
+parse_color = _hex  # public name: "#rrggbb" (leading "#" optional) -> RGB floats in [0, 1]
+
+
 # Built-in colours (approximate, chosen by eye) for common vanilla blocks.
 _COLORS = {
     "stone": "7f7f7f", "granite": "9a6b57", "diorite": "bcbcbc", "andesite": "888888",

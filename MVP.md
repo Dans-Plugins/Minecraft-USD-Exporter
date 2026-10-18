@@ -1,6 +1,6 @@
 # MVP
 
-> Status: in development — milestones M1–M5 are complete; M6–M7 are not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: in development — milestones M1–M6 are complete; M7 is not yet implemented. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -101,6 +101,9 @@ Write `terrain.usdc` (always crate format): abstract `/World/BlockLibrary` with 
 
 <a id="m6"></a>
 ### M6 — Claims input contract and overlay layer
+
+*Status: done.* The claims layer is wired into the CLI and root stage in M7.
+
 
 Implement the claims contract and the three input adapters, then write `overlays/claims.usda` with one translucent-box `PointInstancer` per faction. Covers **AC8**.
 

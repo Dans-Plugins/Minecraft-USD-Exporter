@@ -231,7 +231,9 @@ Claims carry a world UUID; a world folder does not obviously carry it to an offl
 
 ### Claims overlay layer
 
-`overlays/claims.usda` defines `/World/Overlays/Claims`. Per faction: one `Xform` with the faction name in `customData`, and one `PointInstancer` whose single prototype is a translucent 16 × H × 16 box (`displayOpacity` 0.35) where H spans the export's Y range, positioned at each claimed chunk. Merging adjacent chunks into larger boxes (as Bluemap_MedievalFactions merges them into polygons) is a post-MVP optimisation.
+`overlays/claims.usda` (`overlays/claims.usdc` with `--binary`) defines `/World/Overlays/Claims`. Per faction: one `Xform` named `faction_<id>` (the ID escaped injectively: `[A-Za-z0-9]` kept, other bytes written as `_` plus two hex digits), with `mcusd:factionId` and `mcusd:factionName` in `customData` and the faction colour as a constant `primvars:displayColor`, and under it one `Chunks` `PointInstancer`. Its single prototype is a translucent 16 × H × 16 box (`displayOpacity` 0.35; the colour is also authored on the box so viewers that ignore inherited primvars still show it) where H spans the export's Y range, with one instance per claimed chunk whose minimum corner is at block `(16x, ymin, 16z)`. Box positions are absolute `point3f` values; they are multiples of 16, which 32-bit floats represent exactly up to 2²⁸, beyond the world border. Only claims whose chunk overlaps the export box in X/Z are written, and duplicate claims are merged. Merging adjacent chunks into larger boxes (as Bluemap_MedievalFactions merges them into polygons) is a post-MVP optimisation.
+
+Reader notes (`mcusd/overlays/claims_input.py`): a `claimed_chunks.json` file on its own is accepted as well as the directory; `factions.json` is optional (without it, names and colours derive from IDs, with a warning); a `factionId` or `worldId` given as a `{"value": ...}` object is unwrapped, in case Gson ever serialises the value class that way (see [open question 4](#open-questions)); and `worldId` must parse as a UUID and is compared in canonical lowercase form.
 
 ## Culling
 

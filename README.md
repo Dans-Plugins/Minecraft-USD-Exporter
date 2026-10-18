@@ -1,6 +1,6 @@
 # Minecraft-USD-Exporter
 
-> **Status: in development — not yet functional.** The package skeleton, CI, world locator, region-file reader, chunk decoder, bounding-box selection, block catalogue, hidden-block culler and terrain USD layer writer exist (milestones M1–M5); the rest of the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
+> **Status: in development — not yet functional.** The package skeleton, CI, world locator, region-file reader, chunk decoder, bounding-box selection, block catalogue, hidden-block culler, terrain USD layer writer and Medieval Factions claims overlay exist (milestones M1–M6); the rest of the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
 
 ## Description
 
@@ -120,4 +120,4 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## Project Status
 
-In development — milestones M1 (package skeleton, packaging and CI), M2 (world locator and region-file reader), M3 (chunk decoding, selection and block catalogue), M4 (hidden-block culling) and M5 (terrain USD layer) are complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.
+In development — milestones M1 (package skeleton, packaging and CI), M2 (world locator and region-file reader), M3 (chunk decoding, selection and block catalogue), M4 (hidden-block culling), M5 (terrain USD layer) and M6 (claims overlay) are complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.
