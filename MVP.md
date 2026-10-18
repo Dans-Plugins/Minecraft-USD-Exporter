@@ -1,6 +1,6 @@
 # MVP
 
-> Status: MVP implemented — milestones M1–M7 are complete and AC1–AC10 pass in CI; AC11 (manual viewer check) is still to be performed. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
+> Status: MVP implemented — milestones M1–M7 are complete and AC1–AC10 pass in CI; AC11 (manual viewer check) is done in Blender and still owed in `usdview`. Design details live in [ARCHITECTURE.md](ARCHITECTURE.md); motivation and prior art in [CONCEPT.md](CONCEPT.md).
 
 ## The smallest end-to-end slice
 
@@ -110,7 +110,7 @@ Implement the claims contract and the three input adapters, then write `overlays
 <a id="m7"></a>
 ### M7 — CLI, root stage assembly and end-to-end verification
 
-*Status: done, except AC11.* The manual viewer checklist (AC11) has not been performed: `usdview` and Blender were not available where the MVP was built. The steps and a results table are in the README's [Viewer checklist](README.md#viewer-checklist-ac11).
+*Status: done, except AC11.* The manual viewer checklist (AC11) has been performed in Blender 5.2.2 but not in `usdview`, which was not available where the MVP was built. The steps and a results table are in the README's [Viewer checklist](README.md#viewer-checklist-ac11).
 
 
 Wire the CLI (including `--binary`), write `world.usda` with sublayers and metadata, write the fixture recipe (`scripts/make_fixtures.py` + `tests/fixtures/RECIPE.md`) and commit the 1.21.x and 26.x fixture worlds it generates, run end-to-end tests, perform the manual viewer checklist and document usage and measured performance in the README. Covers **AC7**, **AC9**, **AC10**, **AC11**.

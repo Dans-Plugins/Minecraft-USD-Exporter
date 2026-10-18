@@ -1,0 +1,40 @@
+{
+  "format": "mcusd-claims",
+  "version": 1,
+  "factions": [
+    {"id": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01", "name": "Northwatch", "color": "#d93a3a"},
+    {"id": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02", "name": "Saltmarsh", "color": "#f2b31b"},
+    {"id": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03", "name": "Fernhollow", "color": "#b84fd6"}
+  ],
+  "claims": [
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -8, "z": -8, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -8, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -8, "z": -6, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -7, "z": -8, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -7, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -7, "z": -6, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -6, "z": -8, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -6, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -6, "z": -6, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -5, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -4, "z": -2, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -4, "z": -1, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -4, "z": 0, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -3, "z": -2, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -3, "z": -1, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -3, "z": 0, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -2, "z": -2, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -2, "z": -1, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -2, "z": 0, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -1, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -1, "z": -6, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": -1, "z": -5, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 0, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 0, "z": -6, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 0, "z": -5, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 1, "z": -7, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 1, "z": -6, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 1, "z": -5, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"},
+    {"worldId": "7e57c0de-0000-4000-8000-0000000c1a1e", "x": 0, "z": -8, "factionId": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e03"}
+  ]
+}
