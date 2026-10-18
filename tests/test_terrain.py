@@ -187,3 +187,26 @@ def test_shared_block_id_across_regions(exported):
         mask = block_ids == stone
         assert mask.any()
         assert {protos[i] for i in proto_indices[mask]} == {"minecraft:stone"}
+
+
+def test_each_region_is_persisted_as_it_is_written(tmp_path):
+    """Completed regions are on disk (and the layer clean) before close()."""
+    coords = [(0, 0), (32, 0)]
+    chunks = random_chunks(coords, np.random.default_rng(5), air_fraction=0.3)
+    root = write_world(tmp_path / "world", chunks)
+    loc = locate(root, "overworld")
+    source = ChunkSource(loc.region_dir, loc.dimension)
+    catalogue = BlockCatalogue()
+    writer = TerrainWriter(tmp_path / "out", catalogue, source.table, loc.dimension)
+    volumes = iter_region_volumes(source, BBox(0, -64, 0, 527, 70, 15))
+    first = cull_region(next(volumes), catalogue)
+    writer.add_region(first)
+    assert not writer.layer.dirty
+    on_disk = Sdf.Layer.OpenAsAnonymous(str(writer.path))
+    positions = on_disk.GetAttributeAtPath("/World/Terrain/r_0_0/Blocks.positions").default
+    assert len(positions) == first.kept
+    writer.add_region(cull_region(next(volumes), catalogue))
+    stats = writer.close()
+    stage = Usd.Stage.Open(str(stats.path))
+    assert sum(len(i.GetPositionsAttr().Get()) for i in instancers(stage)) == stats.instances
+    assert stage.GetPrimAtPath("/World/BlockLibrary").GetAttribute("mcusd:blockIds").Get()

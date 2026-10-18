@@ -1,7 +1,8 @@
 """Terrain writer.
 
 Writes the base terrain layer (always ``terrain.usdc``): the prototype library
-and one ``UsdGeomPointInstancer`` per region.
+and one ``UsdGeomPointInstancer`` per region. Each finished region is saved and
+the layer reloaded, so a region's instance arrays leave memory once written.
 
 Layout (see ARCHITECTURE.md § Stage / prim layout)::
 
@@ -117,7 +118,7 @@ class TerrainWriter:
         world = UsdGeom.Xform.Define(self.stage, WORLD)
         Usd.ModelAPI(world).SetKind(Kind.Tokens.assembly)
         self.stage.SetDefaultPrim(world.GetPrim())
-        self.library = self.stage.CreateClassPrim(LIBRARY)
+        self.stage.CreateClassPrim(LIBRARY)
         terrain = UsdGeom.Xform.Define(self.stage, TERRAIN)
         Usd.ModelAPI(terrain).SetKind(Kind.Tokens.group)
         self._library_entries: set[int] = set()
@@ -174,9 +175,20 @@ class TerrainWriter:
         self.stats.regions += 1
         self.stats.instances += result.kept
         self.stats.per_region[(rx, rz)] = result.kept
+        self._flush()
+
+    def _flush(self) -> None:
+        """Persist what has been authored and release its in-memory array storage.
+
+        Saving a crate layer appends the new data to the file, and reloading
+        replaces the in-memory values with lazy, file-backed ones, so memory stays
+        bounded by one region instead of growing with the whole export.
+        """
+        self.layer.Save()
+        self.layer.Reload()
 
     def close(self) -> TerrainStats:
-        self.library.CreateAttribute("mcusd:blockIds", Sdf.ValueTypeNames.StringArray).Set(
+        self.stage.GetPrimAtPath(LIBRARY).CreateAttribute("mcusd:blockIds", Sdf.ValueTypeNames.StringArray).Set(
             Vt.StringArray(list(self.table.ids)))
         self.stats.prototypes = len(self._library_entries)
         self.layer.Save()
