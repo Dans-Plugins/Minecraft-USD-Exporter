@@ -1,0 +1,12 @@
+# usd-asset-gate configuration (https://github.com/Preponderous-Software/usd-asset-gate).
+# CI checks stages exported from the fixture worlds; see .github/workflows/usd-asset-gate.yml.
+version: 1
+fail_on: warning
+
+rules:
+  # The exporter writes one block = one metre, Y up (Minecraft's own axes).
+  stage-metadata:
+    metersPerUnit: 1
+    upAxis: "Y"
+  file-size:
+    max_bytes: { default: 10MB }
