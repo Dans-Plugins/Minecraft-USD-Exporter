@@ -45,6 +45,8 @@ mc-usd-export /path/to/world \
 usdview out/world.usda
 ```
 
+The root and overlay layers are written as ASCII `.usda` by default; add `--binary` to write them as `.usdc`. The terrain layer is always binary (`terrain.usdc`) because it is large.
+
 Always export from a **copy** of a world folder or from a stopped server; the tool only reads, but reading files a running server is writing can give inconsistent results.
 
 ### Documentation

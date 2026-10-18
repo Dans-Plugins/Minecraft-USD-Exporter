@@ -49,11 +49,13 @@ Processing is streamed per region file: a region is read, decoded, culled and wr
 
 ```
 out/
-├── world.usda              # root layer (ASCII, tiny, human-editable)
-├── terrain.usdc            # base terrain layer (binary crate; large)
+├── world.usda              # root layer (ASCII by default; world.usdc with --binary)
+├── terrain.usdc            # base terrain layer (always binary crate; large)
 └── overlays/
-    └── claims.usda         # optional Medieval Factions claims overlay
+    └── claims.usda         # optional Medieval Factions claims overlay (claims.usdc with --binary)
 ```
+
+**File format.** Layers default to ASCII `.usda`; the `--binary` flag writes them as crate `.usdc` instead. The one exception is the terrain layer, which is **always** `terrain.usdc` regardless of `--binary`, because it is by far the largest layer and is not meant to be read or diffed by hand. The root layer's `subLayers` paths use whichever extensions were actually written. See [Decisions](#decisions).
 
 ### Root layer (`world.usda`)
 
@@ -76,6 +78,8 @@ out/
 )
 ```
 
+The example shows the default (ASCII) output; with `--binary` the root and overlay layers are `world.usdc` and `overlays/claims.usdc`, and `terrain.usdc` is unchanged.
+
 Overlays are listed before terrain in `subLayers` so their opinions are stronger. Muting a sublayer in `usdview` (or deleting the line) removes that overlay without regenerating anything else.
 
 ### Stage / prim layout
@@ -88,7 +92,7 @@ Overlays are listed before terrain in `subLayers` so their opinions are stronger
 │   └── ...
 ├── /World/Terrain                       Xform  (kind = group)
 │   ├── r_0_0                            Xform  translate = (0, 0, 0)
-│   │   └── Blocks                       PointInstancer
+│   │   └── Blocks                       PointInstancer  ids, primvars:mcusd:blockId (per instance)
 │   │       └── Prototypes               Scope
 │   │           ├── stone                Mesh   (inherits </World/BlockLibrary/stone>)
 │   │           └── grass_block          Mesh   (inherits </World/BlockLibrary/grass_block>)
@@ -107,8 +111,13 @@ Design choices:
 - **One `PointInstancer` per region file.** Regions give a natural unit for streaming the export, for future payloads (load-on-demand) and for visibility toggling, and keep each instancer's arrays to a manageable size.
 - **Region-local positions.** Each region's `Xform` carries a `translate` to the region's block origin, and instance `positions` are region-local (0–511 on X and Z). Instance positions are `point3f` (32-bit float), which represents integers exactly only up to 2²⁴; world coordinates can reach ±30,000,000, so storing absolute positions would lose precision far from spawn. The `translate` op is double precision.
 - **Shared prototypes via a `class` prim.** `/World/BlockLibrary` is an abstract `class` prim, so its meshes are never drawn at the origin. Each instancer's `Prototypes` scope holds lightweight prims that `inherit` the library entry, keeping a single source of truth for geometry and colour while following the convention that prototypes live beneath the instancer. **(verify)** that `usdview` and Blender resolve inherited prototype meshes correctly; fallback is to author each prototype as a full `Mesh` under each instancer (geometry is 8 points, so duplication is cheap).
+- **Per-instance block IDs from the start.** Every terrain `PointInstancer` authors, alongside `protoIndices` and `positions`, two per-instance arrays of the same length (see [Decisions](#decisions)):
+  - `primvars:mcusd:blockId` — `int[]`, interpolation `vertex` (one value per instance), indexing into a layer-wide block-ID table stored as a `string[]` attribute `mcusd:blockIds` on `/World/BlockLibrary` (namespaced IDs such as `minecraft:stone`). Unlike `protoIndices`, which index each instancer's own `Prototypes` and so differ between regions, this ID means the same block type in every region, so an overlay can select, recolour or hide one block type across the whole stage.
+  - `ids` — `int64[]`, a stable per-instance identifier derived from the block's region-local position (`(y − ymin) × 512 × 512 + z × 512 + x`, with region-local `x`, `z` in 0–511 and `ymin` the dimension's minimum block Y, −64 for the overworld; unique within an instancer), so a later overlay layer can cut terrain away by authoring `invisibleIds` on a region's instancer, or override individual instances, without regenerating terrain.
+
+  **File-size tradeoff:** this adds about 12 bytes per instance (4 for `blockId`, 8 for `ids`) before crate compression, on top of about 16 bytes for `positions` (12) and `protoIndices` (4) — up to roughly 75 % more per-instance data in `terrain.usdc`. It is accepted so that overlays can cut away and recolour terrain without re-exporting; actual sizes are measured on the fixture worlds in M7.
 - **`displayColor` instead of materials.** MVP prototypes carry `primvars:displayColor`; no textures are produced (see [non-goals](CONCEPT.md#non-goals)).
-- **Binary terrain, ASCII everything else.** `terrain.usdc` uses the crate format for size and load speed; the root and overlay layers are `.usda` so they can be read and diffed.
+- **Binary terrain, ASCII everything else by default.** `terrain.usdc` always uses the crate format for size and load speed; the root and overlay layers default to `.usda` so they can be read and diffed, and `--binary` switches them to `.usdc`.
 
 ## Key USD APIs (`pxr`, from `usd-core`)
 
@@ -120,8 +129,9 @@ Design choices:
 | `Usd.Stage.CreateClassPrim` | Abstract `/World/BlockLibrary`. |
 | `Usd.Prim.GetInherits().AddInherit` | Prototype prims inheriting the library entry. |
 | `UsdGeom.Mesh.Define`, `CreatePointsAttr`, `CreateFaceVertexCountsAttr`, `CreateFaceVertexIndicesAttr`, `CreateExtentAttr`, `CreateDisplayColorPrimvar` | Unit-cube prototypes and claim boxes. |
-| `UsdGeom.PointInstancer.Define`, `CreatePrototypesRel`, `CreateProtoIndicesAttr`, `CreatePositionsAttr`, `CreateExtentAttr` | Per-region block instancing. |
-| `Vt.Vec3fArray.FromNumpy`, `Vt.IntArray.FromNumpy` | Hand `numpy` arrays to USD without a Python-level loop. **(verify)** availability and zero-copy behaviour in `usd-core` 26.8. |
+| `UsdGeom.PointInstancer.Define`, `CreatePrototypesRel`, `CreateProtoIndicesAttr`, `CreatePositionsAttr`, `CreateExtentAttr`, `CreateIdsAttr` | Per-region block instancing, including per-instance `ids`. |
+| `UsdGeom.PrimvarsAPI(prim).CreatePrimvar("mcusd:blockId", Sdf.ValueTypeNames.IntArray, UsdGeom.Tokens.vertex)` | Per-instance block-ID primvar on each terrain instancer. |
+| `Vt.Vec3fArray.FromNumpy`, `Vt.IntArray.FromNumpy`, `Vt.Int64Array.FromNumpy` | Hand `numpy` arrays to USD without a Python-level loop. **(verify)** availability and zero-copy behaviour in `usd-core` 26.8. |
 | `UsdGeom.Xformable.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble)` | Region and claim-box placement. |
 | `Kind.Tokens`, `Usd.ModelAPI.SetKind` | `assembly` / `group` kinds so tools treat the hierarchy sensibly. |
 
@@ -214,35 +224,60 @@ For each region, decoded block IDs are placed into a dense array with a one-bloc
 |---|---|---|---|
 | Python | ≥ 3.12 | — | `numpy` 2.5.x requires ≥ 3.12; `usd-core` 26.8 supports < 3.15. |
 | [`usd-core`](https://pypi.org/project/usd-core/) | 26.8 (released 2026-07-20) | `LicenseRef-TOST-1.0` per PyPI metadata | Official OpenUSD Python bindings. |
-| [`anvil-parser2`](https://pypi.org/project/anvil-parser2/) | 0.10.6 | MIT | Chunk/palette decoding. Pulls in `nbt` 1.5.1 (MIT) and `frozendict` (LGPL-3.0 per its PyPI classifiers — used unmodified as a separate package, but noted for licence review). |
+| [`anvil-parser2`](https://pypi.org/project/anvil-parser2/) | 0.10.6 | MIT | Chunk/palette decoding. Pulls in `nbt` 1.5.1 (MIT) and `frozendict` (LGPL-3.0 per its PyPI classifiers). |
 | [`numpy`](https://pypi.org/project/numpy/) | ≥ 2.5, < 3 (2.5.4 current) | BSD-3-Clause (plus bundled-component licences per PyPI) | Dense volumes, culling, array hand-off to USD. |
 | [`lz4`](https://pypi.org/project/lz4/) | 4.4.5 (optional extra `[lz4]`) | BSD (PyPI classifier) | LZ4-compressed region chunks. |
 | [`pytest`](https://pypi.org/project/pytest/) | 9.1.1 (dev) | MIT | Tests. |
 
 No dependency on Medieval Factions code; the coupling is the JSON shape documented above.
 
+**Licence note — `frozendict` (LGPL-3.0).** `frozendict` arrives transitively through `anvil-parser2`. It is accepted as an ordinary pip-installed dependency of this MIT-licensed project: it is installed as a separate package, used unmodified, and neither vendored, copied nor bundled into this repository or any artifact it publishes. If a future change would vendor, modify or bundle it (for example a frozen single-file executable), the licence question must be reopened. See [Decisions](#decisions).
+
 ## Testing strategy
 
 - **Unit tests** (`pytest`): region header parsing and every compression scheme (synthetic region files built in-test, including an external `.mcc` chunk); world-layout resolution for pre-26.1 and 26.1+ trees; bounding-box → chunk selection, including negative coordinates; culling on hand-built volumes (solid cube → only shell survives; cave pocket → walls survive; selection edge exposed); claims-input normalisation for all three input shapes, including mismatched `factionId` and multi-world input.
 - **USD structure tests**: open the produced stage with `Usd.Stage.Open` and assert prim paths, kinds, `upAxis`, `metersPerUnit`, sublayer order, prototype count, `len(protoIndices) == len(positions)`, every proto index in range, and that the composed `/World/Overlays/Claims` disappears when the overlay layer is muted (`stage.MuteLayer`).
-- **Golden fixture worlds**: small real worlds saved by an unmodified 1.21.x and 26.x game/server, committed under `tests/fixtures/` (compressed, a few chunks each), exported end-to-end in CI with known block counts at known coordinates. Producing them is an MVP task; see [open questions](#open-questions).
+- **Golden fixture worlds**: tiny fresh worlds generated by throwaway, unmodified vanilla servers, committed under `tests/fixtures/` (a few chunks each), exported end-to-end in CI with known block counts at known coordinates. They are produced by the [fixture recipe](#fixture-world-recipe) below; see [Decisions](#decisions).
 - **Viewer smoke tests** (manual, documented checklist): `usdview world.usda` opens with terrain and overlay visible; overlay mutes cleanly; Blender's USD importer loads the stage. Blender's manual (5.2 LTS) states that `UsdGeomPointInstancer` prims "are imported into Blender as Point Clouds using a Geometry Nodes Modifier and the Instance on Points Node" ([Blender manual: USD](https://docs.blender.org/manual/en/latest/files/import_export/usd.html)).
 - **CI**: GitHub Actions on Linux, Python 3.12 and 3.14, `pip install .[lz4,dev]` then `pytest`. `usdview` is not part of `usd-core`, so viewer checks stay manual.
+
+### Fixture world recipe
+
+Fixtures are generated, never copied from a played world, so they contain no player data and anyone can regenerate them. The recipe is planned as a script, `scripts/make_fixtures.py`, with a matching `tests/fixtures/RECIPE.md` that records exactly what was run; both land with milestone M7.
+
+| Parameter | Value |
+|---|---|
+| Server | Official vanilla `server.jar`, unmodified, one per fixture, run in a throwaway temporary directory and deleted afterwards. |
+| Versions | Exactly one pinned 1.21.x release (pre-26.1 layout) and exactly one pinned 26.x release (26.1+ `dimensions/` layout). The exact version strings and the `server.jar` SHA-256 are recorded in `RECIPE.md` when the fixtures are first generated and changed only by regenerating. |
+| Seed | A fixed `level-seed` per fixture, recorded in `RECIPE.md`; `level-type=minecraft:normal`, `generate-structures=false` so the terrain is determined by seed and version alone. |
+| Chunks kept | The four chunks around the origin, chunk X and Z in {−1, 0} (blocks −16..15 on X and Z). They span four region files (`r.-1.-1`, `r.-1.0`, `r.0.-1`, `r.0.0`), so negative coordinates and region boundaries are both exercised. They are force-loaded (`/forceload add -16 -16 15 15`), saved (`/save-all flush`) and the server is stopped. |
+| Dimensions | Overworld only by default; the Nether and End locator cases use synthetic layouts in unit tests. |
+| Trimming | Every other chunk is dropped by rewriting the four region files to contain only the kept chunks (default zlib compression). Only those region files and `level.dat` are committed. |
+| Player data | Never committed: no player ever joins, and `playerdata/`, `stats/`, `advancements/`, `usercache.json`, `ops.json`, `whitelist.json`, logs and any other server files are discarded with the temporary directory. |
+| Recorded counts | `RECIPE.md` (or a JSON file beside it) records total and per-region culled block counts for a fixed bbox, plus block IDs at a handful of known coordinates, which the end-to-end tests assert (AC10). |
+
+Running a server requires accepting the Minecraft EULA (`eula=true`) on the machine that generates fixtures; that is a manual step for whoever regenerates them, not something CI does. CI only reads the committed fixtures.
 
 ## Performance considerations
 
 - **Memory:** streaming per region bounds peak memory; a region volume at 512 × 384 × 512 with `uint16` palette indices is ~200 MB, so the MVP processes one region at a time in 16-chunk-wide strips if needed **(verify)** by measurement.
 - **Decode speed:** the pure-Python `nbt` library behind `anvil-parser2` is the likely bottleneck. The MVP measures blocks/second on the fixture worlds and records it in the README; replacing the NBT layer is post-MVP.
 - **Array hand-off:** all positions/indices are built as `numpy` arrays and passed to USD in one call per attribute.
-- **File size:** crate (`.usdc`) for terrain; culling typically removes most underground solid blocks. Target: a 512 × 512 surface export loads in `usdview` interactively on a typical laptop (measured, not promised).
+- **File size:** crate (`.usdc`) for terrain, always; culling typically removes most underground solid blocks. Per-instance `ids` and `primvars:mcusd:blockId` add about 12 bytes per instance before compression (see [Stage / prim layout](#stage--prim-layout)). Target: a 512 × 512 surface export loads in `usdview` interactively on a typical laptop (measured, not promised).
 - **Parallelism:** regions are independent; a process pool over regions is a straightforward post-MVP speed-up because each region writes its own prim subtree.
+
+## Decisions
+
+Recorded 2026-10-17 by the project owner. Each resolves an item that was previously listed under open questions.
+
+1. **`frozendict` licence (was open question 6).** `frozendict` (LGPL-3.0, pulled in by `anvil-parser2`) is acceptable as an unmodified, separately pip-installed dependency of this MIT project. Recorded under [Dependencies](#dependencies).
+2. **Fixture worlds (was open question 2).** Fixtures are tiny fresh worlds generated by throwaway local vanilla servers at fixed seeds and exactly pinned versions (one 1.21.x, one 26.x); only a few chunks are kept, small fixtures are committed and no player data is included. The generation recipe is in [Fixture world recipe](#fixture-world-recipe); producing it is part of M7 and AC10.
+3. **Terrain authors per-instance IDs from M5 (was open question 7).** Each terrain `PointInstancer` stores a per-instance block ID (`primvars:mcusd:blockId`) and per-instance `ids`, so later overlays can cut away or recolour terrain without regenerating it. The file-size cost is accepted; see [Stage / prim layout](#stage--prim-layout).
+4. **Output format.** Layers default to `.usda` with a `--binary` flag for `.usdc`, except the terrain layer, which is always `terrain.usdc` because it is huge. The root and overlay layers follow the flag. See [Output layout](#output-layout).
 
 ## Open questions
 
 1. **World UUID auto-detection.** Bukkit-family servers are commonly understood to keep a world UUID in a `uid.dat` file in the world folder, but this has not been verified against current Spigot/Paper source or a real 26.x server for this plan. Until it is, `--world-uuid` is explicit.
-2. **Fixture worlds.** Who produces the small 1.21.x and 26.x fixture worlds, and on which exact game versions? They must be generated by an unmodified game or server and kept tiny.
-3. **Spigot/Paper folder layout on 26.x.** The 26.1 `dimensions/` layout above is from the vanilla level-format documentation; whether Spigot/Paper servers (which historically split dimensions into separate world folders) adopt it is to be checked against a real server world.
-4. **Inherited prototypes.** Confirm `usdview` and Blender both render `PointInstancer` prototypes that `inherit` from an abstract `class` prim; otherwise fall back to per-instancer meshes.
-5. **Gson output of `factionId` in `claimed_chunks.json`.** `MfFactionId` is a Kotlin `@JvmInline value class` over `String`, so the field is expected to serialise as a plain string, matching the REST `ClaimDto` — confirm against a real file.
-6. **`frozendict` licence.** `anvil-parser2` depends on `frozendict`, which PyPI lists as LGPL-3.0. Using it unmodified as a separately installed package is normally compatible with an MIT project, but the owner may prefer to drop it if the NBT layer is later replaced.
-7. **Should the claims overlay hide terrain?** A future overlay could use `PointInstancer.invisibleIds` (requires authoring `ids` in the terrain layer) for cut-away views; deciding now affects whether terrain authors `ids` in the MVP.
+2. **Spigot/Paper folder layout on 26.x.** The 26.1 `dimensions/` layout above is from the vanilla level-format documentation; whether Spigot/Paper servers (which historically split dimensions into separate world folders) adopt it is to be checked against a real server world. (The committed fixtures come from vanilla servers, so they do not answer this.)
+3. **Inherited prototypes.** Confirm `usdview` and Blender both render `PointInstancer` prototypes that `inherit` from an abstract `class` prim; otherwise fall back to per-instancer meshes.
+4. **Gson output of `factionId` in `claimed_chunks.json`.** `MfFactionId` is a Kotlin `@JvmInline value class` over `String`, so the field is expected to serialise as a plain string, matching the REST `ClaimDto` — confirm against a real file.
