@@ -1,6 +1,6 @@
 # Minecraft-USD-Exporter
 
-> **Status: in development — not yet functional.** The package skeleton, dependencies and CI exist (milestone M1); the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
+> **Status: in development — not yet functional.** The package skeleton, CI, world locator and region-file reader exist (milestones M1–M2); the rest of the export pipeline is being built milestone by milestone (see [MVP.md](MVP.md#milestones)). `pip install .` works and `mc-usd-export --help` runs, but the export command shown under Usage is not implemented yet.
 
 ## Description
 
@@ -120,4 +120,4 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## Project Status
 
-In development — milestone M1 (package skeleton, packaging and CI) is complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.
+In development — milestones M1 (package skeleton, packaging and CI) and M2 (world locator and region-file reader) are complete; the exporter itself is not yet functional. See [MVP.md](MVP.md#milestones) for the roadmap.

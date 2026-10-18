@@ -146,7 +146,7 @@ Region container rules implemented by `mcusd/world/region.py`, per the [Region f
 | 1 | GZip | `gzip` (stdlib) |
 | 2 | Zlib (what the official game writes by default) | `zlib` (stdlib) |
 | 3 | Uncompressed | pass-through |
-| 4 | LZ4 (added in snapshot 24w04a; enabled via `server.properties`) | optional extra `lz4`; clear error if absent |
+| 4 | LZ4 (added in snapshot 24w04a; enabled via `server.properties`) | optional extra `lz4`; clear error if absent. The payload is an lz4-java `LZ4BlockOutputStream` stream (`LZ4Block` magic, per-block token, little-endian lengths, XXH32 checksum), not the standard LZ4 frame format — confirmed against a region written by a vanilla 1.21.11 server with `region-file-compression=lz4`. |
 | 127 | Custom (third-party servers) | clear "unsupported" error naming the chunk |
 | +128 | Data stored externally in `c.<x>.<z>.mcc` | read the external file, then apply the base scheme |
 
@@ -155,7 +155,7 @@ Two known limitations of `anvil-parser2` that the MVP accepts and documents:
 - Section Y range is fixed at −4..19 (block Y −64..319) for 1.13+ data ([`chunk.py` L50-L54](https://github.com/0xTiger/anvil-parser2/blob/91a7eda55f0fb55a948d1072896430c29d906809/anvil/chunk.py#L50-L54)); datapack dimensions with other heights are out of scope.
 - Its NBT dependency (`nbt` 1.5.1) is pure Python; decoding speed is a measured risk (see [Performance](#performance-considerations)).
 
-No 26.x-specific chunk-format changes are known to this plan; compatibility with real 1.21.x and 26.x worlds is an explicit MVP acceptance criterion rather than an assumption.
+The 26.1+ `dimensions/minecraft/<dimension>/region/` layout was confirmed on a world saved by a vanilla 26.3 server, whose chunks (DataVersion 5023) decode through the same container and `anvil.Chunk` path as 1.21.11 (DataVersion 4671). No 26.x-specific chunk-format changes are known to this plan; compatibility with real 1.21.x and 26.x worlds is an explicit MVP acceptance criterion rather than an assumption.
 
 ## Claims overlay input contract
 
