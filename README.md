@@ -174,7 +174,7 @@ Windows:
 
     py -m pytest
 
-If pytest reports all tests passed, the tests have passed. CI runs the same suite on Linux with Python 3.12 and 3.14.
+If pytest reports all tests passed, the tests have passed. CI runs the same suite on Linux with Python 3.12 and 3.14, and checks stages exported from the fixture worlds with [usd-asset-gate](https://github.com/Preponderous-Software/usd-asset-gate) (see [CONTRIBUTING.md](CONTRIBUTING.md#running-the-tests)).
 
 ## Development
 
