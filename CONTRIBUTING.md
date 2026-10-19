@@ -26,7 +26,10 @@ Windows:
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs the same command on Linux
 with Python 3.12 and 3.14, after checking that a plain `pip install .` in a fresh
-virtualenv gives a working `mc-usd-export --help`.
+virtualenv gives a working `mc-usd-export --help`. A second workflow,
+`.github/workflows/usd-asset-gate.yml`, exports the fixture worlds and checks the
+written stages with [usd-asset-gate](https://github.com/Preponderous-Software/usd-asset-gate)
+against the rules in `.usd-asset-gate.yml`; it fails on any warning.
 
 ## Conventions
 
