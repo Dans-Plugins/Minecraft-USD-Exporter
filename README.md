@@ -66,6 +66,7 @@ mc-usd-export tests/fixtures/world-26.3 --bbox -16 -64 -16 15 319 15 \
 | `--binary` | Write the root and overlay layers as `.usdc`. |
 | `--summary-json PATH` | Also write the export summary (counts per region, file sizes, timings) as JSON. |
 | `-q`, `--quiet` | Print only errors and warnings. |
+| `--version` | Print the exporter version and exit. |
 
 Exit status: `0` on success, `2` for invalid input (bad arguments, not a world, unreadable claims or overrides), `1` when world data cannot be read (for example a corrupt region file or a chunk using unsupported custom compression). LZ4-compressed worlds need the `[lz4]` extra.
 

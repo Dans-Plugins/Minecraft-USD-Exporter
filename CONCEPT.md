@@ -1,6 +1,6 @@
 # Concept
 
-> Status: planning — not yet implemented. Facts about other projects below were checked on 2026-10-17 and are linked to the source they came from.
+> Status: MVP implemented — milestones M1–M7 are merged; see [MVP.md](MVP.md#milestones). Facts about other projects below were checked on 2026-10-17 and are linked to the source they came from.
 
 ## Problem
 
@@ -25,7 +25,7 @@ A Minecraft Java Edition world is a large, sparse, voxel dataset stored in a for
 - **Instancing as the storage model.** Each block type becomes a prototype; each placed block is just an index and a position. The output scales with the number of *visible* blocks, not with face count.
 - **Layer composition as a headline feature, not an afterthought.** The output is a small root layer that sublayers a base terrain layer plus optional overlay layers. The first overlay is a Medieval Factions territory layer, driven by a documented JSON input contract (see [ARCHITECTURE.md](ARCHITECTURE.md#claims-overlay-input-contract)) whose claim records match the shape Medieval Factions already produces — no new storage format is invented.
 - **Culling before export.** Blocks completely enclosed by opaque neighbours are dropped before they reach USD, which typically removes the bulk of underground solid blocks.
-- **Headless and scriptable.** A plain Python CLI that runs on Linux, macOS and Windows, suitable for scheduled tasks and CI pipelines.
+- **Headless and scriptable.** A plain Python CLI with no platform-specific code, meant for Linux, macOS and Windows (CI tests it on Linux only), suitable for scheduled tasks and CI pipelines.
 - **Tested against modern worlds.** Java Edition 26.1 moved the overworld region folder from the world root to `dimensions/minecraft/overworld/region/` (and `DIM-1`/`DIM1` to `dimensions/minecraft/the_nether` and `dimensions/minecraft/the_end`), per the [Java Edition level format](https://minecraft.wiki/w/Java_Edition_level_format) article. The reader resolves both layouts.
 
 ## Non-goals
