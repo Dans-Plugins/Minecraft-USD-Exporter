@@ -54,7 +54,7 @@ def test_binary_root_is_written_as_crate(tmp_path):
 
 
 def test_overlays_are_listed_in_order_before_terrain_and_win(tmp_path):
-    terrain = make_layer(tmp_path / "terrain.usdc", 1)
+    make_layer(tmp_path / "terrain.usdc", 1)
     first = make_layer(tmp_path / "overlays" / "first.usda", 3)
     second = make_layer(tmp_path / "overlays" / "second.usda", 2)
     path = write(tmp_path, overlays=[first, second])
@@ -66,7 +66,6 @@ def test_overlays_are_listed_in_order_before_terrain_and_win(tmp_path):
     assert stage.GetPrimAtPath("/World").GetAttribute("mcusd:probe").Get() == 2
     stage.MuteLayer(Sdf.Layer.FindOrOpen(str(second)).identifier)
     assert stage.GetPrimAtPath("/World").GetAttribute("mcusd:probe").Get() == 1
-    assert terrain.exists()
 
 
 def test_rewriting_replaces_the_previous_root_layer(tmp_path):
