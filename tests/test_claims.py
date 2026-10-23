@@ -164,6 +164,15 @@ def test_single_world_needs_no_uuid_and_unmatched_uuid_warns(tmp_path):
         ({"format": "mcusd-claims", "version": 1, "claims": [], "factions": [{"id": "f", "color": "blue"}]}, "rrggbb"),
         ({"format": "mcusd-claims", "version": 1, "claims": "nope"}, "must be a list"),
         ({"hello": "world"}, "not a recognised claims input"),
+        ({"format": "mcusd-claims", "version": 0, "claims": []}, "version 0 is not supported"),
+        ({"format": "mcusd-claims", "version": True, "claims": []}, "'version' must be an integer"),
+        ({"format": "mcusd-claims", "version": 1, "claims": [{"worldId": WORLD, "x": 1.5, "z": 2, "factionId": "f"}]}, "'x' must be an integer"),
+        ({"format": "mcusd-claims", "version": 1, "claims": [{"worldId": 123, "x": 1, "z": 2, "factionId": "f"}]}, "worldId must be a UUID string"),
+        ({"format": "mcusd-claims", "version": 1, "claims": [{"worldId": WORLD, "x": 1, "z": 2, "factionId": 7}]}, "'factionId' must be a string"),
+        ({"format": "mcusd-claims", "version": 1, "claims": ["nope"]}, "each claim must be an object"),
+        ({"format": "mcusd-claims", "version": 1, "claims": [], "factions": "nope"}, "'factions' must be a list"),
+        ({"format": "mcusd-claims", "version": 1, "claims": [], "factions": [{"name": "f"}]}, "needs a string 'id'"),
+        ({"format": "mcusd-claims", "version": 1, "claims": [], "factions": [{"id": "f", "name": 3}]}, "'name' must be a string"),
     ],
 )
 def test_invalid_inputs_are_rejected(tmp_path, doc, message):
@@ -189,6 +198,59 @@ def test_mf_directory_without_factions_file_warns(tmp_path):
     assert data.source_kind == "mf-json-storage"
     assert any("factions.json not found" in w for w in data.warnings)
     assert len(data.claims) == 3
+
+
+@pytest.mark.parametrize(
+    "claims_doc, factions_doc, message",
+    [
+        ([], None, "expected an object with a 'claims' list"),
+        ({"claims": []}, {"other": []}, "expected an object with a 'factions' list"),
+        ({"claims": []}, {"factions": ["nope"]}, "each faction must be an object"),
+        ({"claims": []}, {"factions": [{"name": "n"}]}, "needs a string 'id'"),
+    ],
+)
+def test_malformed_mf_directory_is_rejected(tmp_path, claims_doc, factions_doc, message):
+    directory = tmp_path / "medieval_factions_data"
+    directory.mkdir()
+    write_json(directory / "claimed_chunks.json", claims_doc)
+    if factions_doc is not None:
+        write_json(directory / "factions.json", factions_doc)
+    with pytest.raises(ClaimsError, match=message):
+        load_claims(directory)
+
+
+def test_world_ids_are_stored_in_canonical_lowercase(tmp_path):
+    claims = [{"worldId": {"value": WORLD.upper()}, "x": 0, "z": 0, "factionId": NORTH}]
+    data = load_claims(write_json(tmp_path / "api.json", claims))
+    assert data.world_ids() == [WORLD]
+    assert len(data.select_world(WORLD)) == 1
+
+
+def test_mf_faction_value_wrappers_and_missing_name(tmp_path):
+    directory = tmp_path / "medieval_factions_data"
+    directory.mkdir()
+    write_json(directory / "claimed_chunks.json", {"claims": CLAIMS})
+    write_json(directory / "factions.json", {"factions": [
+        {"id": {"value": NORTH}, "flags": {"color": {"value": "#3366cc"}}},
+        {"id": SOUTH, "name": "Southmoor", "flags": {}},
+    ]})
+    data = load_claims(directory)
+    north, south = data.faction(NORTH), data.faction(SOUTH)
+    assert (north.name, north.color, north.color_from_input) == (NORTH, parse_color("#3366cc"), True)
+    assert (south.name, south.color, south.color_from_input) == ("Southmoor", hashed_color(SOUTH), False)
+    assert data.warnings == []
+
+
+def test_native_faction_without_colour_and_duplicate_ids(tmp_path):
+    doc = {"format": "mcusd-claims", "version": 1, "claims": CLAIMS, "factions": [
+        {"id": NORTH, "color": "#3366cc"},
+        {"id": NORTH, "name": "Impostor", "color": "#000000"},
+        {"id": SOUTH, "name": "Southmoor"},
+    ]}
+    data = load_claims(write_json(tmp_path / "claims.json", doc))
+    north, south = data.faction(NORTH), data.faction(SOUTH)
+    assert (north.name, north.color) == (NORTH, parse_color("#3366cc"))  # the first entry for an ID wins
+    assert (south.color, south.color_from_input) == (hashed_color(SOUTH), False)
 
 
 def test_claimed_chunks_file_alone_and_value_wrappers(tmp_path):
