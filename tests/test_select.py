@@ -1,4 +1,7 @@
-"""AC4: bounding-box selection is exact, across negative coordinates and region boundaries."""
+"""AC4: bounding-box selection is exact, across negative coordinates and region boundaries.
+
+Also characterizes the box geometry helpers and the chunk source's caches.
+"""
 
 import numpy as np
 import pytest
@@ -7,7 +10,9 @@ from mcusd.select import (
     BBox,
     ChunkSource,
     chunks_by_region,
+    clamp_to_dimension,
     iter_region_volumes,
+    region_bounds,
     region_volume,
 )
 from mcusd.world.layout import DIMENSIONS, locate
@@ -20,6 +25,101 @@ def test_bbox_normalises_corners():
     assert BBox.from_corners(5, 70, -3, -2, 60, 4) == BBox(-2, 60, -3, 5, 70, 4)
     with pytest.raises(ValueError):
         BBox(1, 0, 0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("corners", [(1, 0, 0, 0, 0, 0), (0, 1, 0, 0, 0, 0), (0, 0, 1, 0, 0, 0)])
+def test_bbox_rejects_an_inverted_axis(corners):
+    with pytest.raises(ValueError, match="degenerate bounding box"):
+        BBox(*corners)
+
+
+def test_single_block_box_is_valid():
+    box = BBox(3, -64, -7, 3, -64, -7)
+    assert box.shape == (1, 1, 1)
+    assert box.volume == 1
+    assert box.contains(3, -64, -7)
+
+
+def test_bbox_shape_is_y_z_x_and_inclusive():
+    box = BBox(-2, 10, -3, 5, 12, 4)
+    assert box.shape == (3, 8, 8)
+    assert box.volume == 3 * 8 * 8
+    assert box.as_list() == [-2, 10, -3, 5, 12, 4]
+
+
+@pytest.mark.parametrize(
+    "point, inside",
+    [((-2, 10, -3), True), ((5, 12, 4), True), ((0, 11, 0), True),
+     ((-3, 10, -3), False), ((6, 12, 4), False), ((0, 9, 0), False),
+     ((0, 13, 0), False), ((0, 11, -4), False), ((0, 11, 5), False)],
+)
+def test_bbox_contains_is_inclusive_on_both_ends(point, inside):
+    assert BBox(-2, 10, -3, 5, 12, 4).contains(*point) is inside
+
+
+def test_bbox_intersect_overlap_is_symmetric():
+    a = BBox(0, 0, 0, 10, 10, 10)
+    b = BBox(5, -5, 8, 20, 3, 30)
+    assert a.intersect(b) == b.intersect(a) == BBox(5, 0, 8, 10, 3, 10)
+    assert a.intersect(a) == a
+
+
+def test_bbox_intersect_sharing_one_plane_is_one_block_thick():
+    a = BBox(0, 0, 0, 10, 10, 10)
+    assert a.intersect(BBox(10, 0, 0, 20, 10, 10)) == BBox(10, 0, 0, 10, 10, 10)
+
+
+@pytest.mark.parametrize(
+    "other",
+    [BBox(11, 0, 0, 20, 10, 10), BBox(0, 11, 0, 10, 20, 10), BBox(0, 0, 11, 10, 10, 20),
+     BBox(-20, 0, 0, -1, 10, 10)],
+)
+def test_bbox_intersect_disjoint_on_any_axis_is_none(other):
+    assert BBox(0, 0, 0, 10, 10, 10).intersect(other) is None
+
+
+def test_bbox_expand_grows_every_side():
+    box = BBox(0, 0, 0, 1, 1, 1)
+    assert box.expand(2) == BBox(-2, -2, -2, 3, 3, 3)
+    assert box.expand(0) == box
+    assert box.expand(1).shape == (4, 4, 4)
+
+
+def test_bbox_expand_by_a_negative_amount_past_the_centre_raises():
+    """Shrinking is allowed only while the box stays non-degenerate."""
+    assert BBox(0, 0, 0, 4, 4, 4).expand(-2) == BBox(2, 2, 2, 2, 2, 2)
+    with pytest.raises(ValueError):
+        BBox(0, 0, 0, 1, 1, 1).expand(-1)
+
+
+def test_bbox_is_frozen():
+    box = BBox(0, 0, 0, 1, 1, 1)
+    with pytest.raises(AttributeError):
+        box.x1 = 5
+
+
+@pytest.mark.parametrize(
+    "region, expected",
+    [((0, 0), BBox(0, -64, 0, 511, 319, 511)),
+     ((1, 0), BBox(512, -64, 0, 1023, 319, 511)),
+     ((-1, -2), BBox(-512, -64, -1024, -1, 319, -513))],
+)
+def test_region_bounds_cover_512_blocks_per_side(region, expected):
+    bounds = region_bounds(*region, OVERWORLD.min_y, OVERWORLD.max_y)
+    assert bounds == expected
+    assert bounds.shape == (384, 512, 512)
+
+
+@pytest.mark.parametrize(
+    "dimension, bbox, expected",
+    [("overworld", BBox(0, -100, 0, 5, 400, 5), BBox(0, -64, 0, 5, 319, 5)),
+     ("the_nether", BBox(0, -10, 0, 5, 300, 5), BBox(0, 0, 0, 5, 255, 5)),
+     ("the_end", BBox(-9, 20, -9, 9, 40, 9), BBox(-9, 20, -9, 9, 40, 9)),
+     ("overworld", BBox(0, 320, 0, 5, 330, 5), None),
+     ("the_nether", BBox(0, -64, 0, 5, -1, 5), None)],
+)
+def test_clamp_to_dimension_only_trims_y(dimension, bbox, expected):
+    assert clamp_to_dimension(bbox, DIMENSIONS[dimension]) == expected
 
 
 @pytest.mark.parametrize(
@@ -155,3 +255,66 @@ def test_regions_without_a_file_are_skipped(tmp_path):
     _, source = _world(tmp_path, [(0, 0)])
     assert region_volume(source, BBox(-5, 0, -5, 5, 5, 5), -1, -1) is None
     assert source.has_region(0, 0) and not source.has_region(-1, -1)
+
+
+def _source(tmp_path, coords, **cache):
+    chunks = random_chunks(coords, np.random.default_rng(4))
+    loc = locate(write_world(tmp_path / "world", chunks), "overworld")
+    return chunks, ChunkSource(loc.region_dir, loc.dimension, **cache)
+
+
+def test_chunk_maps_palettes_to_layer_wide_indices(tmp_path):
+    chunks, source = _source(tmp_path, [(0, 0), (1, 0)])
+    volumes = {coord: source.chunk(*coord) for coord in chunks}
+    names = np.array(source.table.ids, dtype=object)  # the table grows as chunks are decoded
+    for coord, volume in volumes.items():
+        assert volume.dtype == np.uint16 and volume.shape == (384, 16, 16)
+        assert (names[volume] == chunks[coord]).all()
+    assert source.table[0] == "minecraft:air"
+
+
+def test_absent_chunks_are_none_and_not_counted_as_decoded(tmp_path):
+    _, source = _source(tmp_path, [(0, 0)])
+    assert source.chunk(1, 0) is None  # region file exists, chunk does not
+    assert source.chunk(-1, -1) is None  # no region file at all
+    assert source.chunks_decoded == 0 and source.chunks_skipped_partial == 0
+
+
+def test_chunk_cache_hit_returns_the_same_array(tmp_path):
+    _, source = _source(tmp_path, [(0, 0), (1, 0)], chunk_cache=1)
+    first = source.chunk(0, 0)
+    assert source.chunk(0, 0) is first
+    assert source.chunks_decoded == 1
+    source.chunk(1, 0)  # evicts (0, 0)
+    assert source.chunk(0, 0) is not first
+    assert source.chunks_decoded == 3
+
+
+def test_chunk_cache_evicts_the_least_recently_used_chunk(tmp_path):
+    _, source = _source(tmp_path, [(0, 0), (1, 0), (2, 0)], chunk_cache=2)
+    for coord in [(0, 0), (1, 0), (0, 0), (2, 0)]:  # touching (0, 0) again makes (1, 0) the oldest
+        source.chunk(*coord)
+    assert source.chunks_decoded == 3
+    source.chunk(0, 0)
+    assert source.chunks_decoded == 3  # still cached
+    source.chunk(1, 0)
+    assert source.chunks_decoded == 4  # evicted, decoded again
+
+
+@pytest.mark.parametrize("region_cache, opens", [(1, 2), (4, 1)])
+def test_region_cache_reopens_only_evicted_files(tmp_path, monkeypatch, region_cache, opens):
+    import mcusd.select as select_module
+
+    opened = []
+    real = select_module.RegionFile
+
+    def counting(path):
+        opened.append(path.name)
+        return real(path)
+
+    monkeypatch.setattr(select_module, "RegionFile", counting)
+    _, source = _source(tmp_path, [(0, 0)], region_cache=region_cache)
+    assert source.has_region(0, 0) and source.has_region(0, 0)
+    assert not source.has_region(-1, -1)  # a missing file is cached too, and takes a slot
+    assert source.has_region(0, 0)
+    assert opened == ["r.0.0.mca"] * opens
