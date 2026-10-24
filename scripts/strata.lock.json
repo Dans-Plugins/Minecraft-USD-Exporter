@@ -1,7 +1,7 @@
 {
-  "comment": "The Strata release scripts/render_strata_preview.py loads. Change only by bumping all four fields together; sha256 is copied from the release's SHA256SUMS.",
-  "version": "0.4.0",
-  "asset": "libstrata-0.4.0-linux-x64.so",
-  "url": "https://github.com/Preponderous-Software/strata/releases/download/v0.4.0/libstrata-0.4.0-linux-x64.so",
-  "sha256": "6044127f21c33abbd03d4e39182b5a6082c73e92479236bbd0aea6e68594b181"
+  "comment": "The Strata release scripts/render_strata_preview.py loads. Change only by bumping all four fields together (and the strata-engine tag in BINDING_URL and CI); sha256 is copied from the release's SHA256SUMS.",
+  "version": "0.5.0",
+  "asset": "libstrata-0.5.0-linux-x64.so",
+  "url": "https://github.com/Preponderous-Software/strata/releases/download/v0.5.0/libstrata-0.5.0-linux-x64.so",
+  "sha256": "44f8263426b546c04295b1033032fded97541060c8e804873894d43e80fcffcb"
 }
