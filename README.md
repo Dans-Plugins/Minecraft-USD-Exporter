@@ -140,6 +140,40 @@ ffmpeg -framerate 24 -i frames/frame_%04d.png -c:v libx264 -pix_fmt yuv420p -crf
 
 `--still 0.85` renders a single frame (to `frames/still.png`) instead, for a poster image.
 
+### Headless previews with Strata
+
+![The same area as above, rendered headless by Strata from the export's top surface: the three example factions' claims are tinted and outlined in their colours](docs/images/strata-preview-top.png)
+
+![The same view with every visible block drawn as a cube, so the cut faces of the export box show stone, caves and ore](docs/images/strata-preview-full.png)
+
+![The same top-surface view with the sun moving from sunrise to sunset on 21 June at 40° N](docs/images/strata-preview-day.gif)
+
+*The same export and example factions as the Blender images above (a fresh vanilla 26.3 world, seed 8675309), rendered with `scripts/render_strata_preview.py` and [Strata](https://github.com/Preponderous-Software/strata) 0.4.0 on Mesa's llvmpipe, with no GPU, no window and no Blender. Top: the top surface (the default). Middle: `--full`, every visible block as a cube. Bottom: `--sequence 24`, the sun from just after sunrise to just before sunset on 21 June 2026 at 40° N, 105° W. Each still took about 2.5 s (top surface) and 10 s (`--full`, 163,275 cubes) end to end on a shared 20-thread machine.*
+
+`scripts/render_strata_preview.py` draws an export with Strata's released Linux library through its C ABI (`ctypes`), headless (EGL surfaceless). It reads the USD the exporter wrote, not the exporter's in-memory arrays, so it shows what a user opens. It complements the Blender scripts above, which stay the source of the images at the top of this README; it does **not** replace the viewer check (AC11), because it reads the stage through `usd-core` itself.
+
+- **Top surface (default).** [usd-web](https://github.com/Preponderous-Software/usd-web) reduces `/World/Terrain` to its top surface and greedy-meshes it; each 128 × 128 tile becomes one Strata mesh with sun shadows. Trees read as columns, because a top surface has no overhangs.
+- **`--full`.** Every visible block becomes a Strata cube primitive, so caves and the box's cut faces show; about 50 times the frame cost on a software rasteriser.
+- **Claims.** When the stage composes `overlays/claims.*`, blocks in claimed chunks are tinted toward the faction colour (by the overlay's opacity, 0.35), each claim's outer edge is traced over the terrain in that colour, and a legend is drawn with Pillow. `--no-claims` and `--no-legend` turn these off.
+- **Fixed framing.** The camera looks from a fixed direction (`--azimuth`, `--elevation`) framed on the export's bounds, and the sun is placed for a fixed moment and place (`--sun 2026-06-21T16:00:00Z --lat 40 --lon -105` by default) with Strata's solar position. Two runs on one export frame identically. The sun is a framing choice, not a claim about the world.
+- **Sun sequence.** An output ending in `.gif` (or `--sequence N`) renders N frames across the daylight hours of `--sun`'s date and writes an animated GIF.
+
+It needs Linux x86-64, `libEGL.so.1` with a Mesa driver (`apt install libegl1 libegl-mesa0 libgl1-mesa-dri`), usd-web and Pillow. None of these is a dependency of the package, so `pip install .` is unchanged:
+
+```bash
+pip install -e . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@03f1cd518b01276da2ecc73435ab2e821c5fba89" pillow
+mc-usd-export tests/fixtures/world-26.3 --bbox -16 -64 -16 15 319 15 \
+  --claims examples/claims.json --out out/
+export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe   # without a GPU
+python scripts/render_strata_preview.py out/world.usda preview.png
+python scripts/render_strata_preview.py out/world.usda preview-full.png --full
+python scripts/render_strata_preview.py out/world.usda day.gif --sequence 24
+```
+
+The Strata library is the release pinned in [`scripts/strata.lock.json`](scripts/strata.lock.json). On first use the script downloads it into `~/.cache/mcusd/strata/<version>/`, checks it against the pinned SHA-256 (copied from the release's `SHA256SUMS`) and deletes it on a mismatch; `--strata PATH` or `MCUSD_STRATA_LIB` uses a local build instead. The script checks Strata's ABI version and every struct it declares against `strata_struct_size()` before drawing. Exit status: `0` written, `1` rendering failed or the image is blank (fewer than 2 % of pixels drawn), `2` bad input, `3` Strata, EGL or Mesa could not be loaded.
+
+The images above were made from the [preview image](#preview-image) export (`--bbox -128 44 -128 31 120 31` with `examples/claims-showcase.json`) with the last three commands applied to that export. CI renders the fixture worlds the same way on every pull request (the **Strata previews** job; images in the `strata-previews` artifact).
+
 ### Documentation
 
 - [MVP scope and acceptance criteria](MVP.md)

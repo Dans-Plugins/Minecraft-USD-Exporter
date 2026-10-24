@@ -31,6 +31,13 @@ virtualenv gives a working `mc-usd-export --help`. A second workflow,
 written stages with [usd-asset-gate](https://github.com/Preponderous-Software/usd-asset-gate)
 against the rules in `.usd-asset-gate.yml`; it fails on any warning.
 
+A third CI job, **Strata previews** (in `ci.yml`), renders the fixture exports
+headless with `scripts/render_strata_preview.py` (Strata on Mesa's llvmpipe, no
+GPU) and uploads the images as the `strata-previews` build artifact, so a change to
+how an export looks can be seen in review. It fails on a renderer error or a blank
+image, never on pixel differences. See the README's
+[Headless previews with Strata](README.md#headless-previews-with-strata).
+
 ## Conventions
 
 - Package layout follows the [component table](ARCHITECTURE.md#components).

@@ -30,3 +30,67 @@ jobs:
         run: python -m pip install ".[lz4,dev]"
       - name: Run tests
         run: python -m pytest
+
+  # Render the fixture exports headless with Strata (no GPU, no
+  # Blender) so a change to how an export looks is visible in review. The images are
+  # kept as a build artifact; the job fails on a renderer error or a blank image, not on
+  # pixel differences (Mesa versions differ between runners).
+  strata-previews:
+    name: Strata previews
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # usd-web has no PyPI release: a full commit SHA on its main branch (0.2.2.dev0).
+      USD_WEB_SHA: 03f1cd518b01276da2ecc73435ab2e821c5fba89
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      GALLIUM_DRIVER: llvmpipe
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Mesa (EGL surfaceless, llvmpipe)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libegl1 libegl-mesa0 libgl1-mesa-dri fonts-dejavu-core
+      - name: Install the exporter, usd-web (pinned) and Pillow
+        run: python -m pip install . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@${USD_WEB_SHA}" pillow==12.0.0
+      - name: Export the fixture worlds with the example claims
+        run: |
+          for version in 1.21.11 26.3; do
+            mc-usd-export "tests/fixtures/world-$version" --bbox -16 -64 -16 15 319 15 \
+              --claims examples/claims.json --out "$RUNNER_TEMP/usd-out/$version" --quiet
+          done
+      - name: Render (Strata release pinned in scripts/strata.lock.json, SHA-256 checked)
+        run: |
+          mkdir -p previews
+          for version in 1.21.11 26.3; do
+            stage="$RUNNER_TEMP/usd-out/$version/world.usda"
+            python scripts/render_strata_preview.py "$stage" "previews/$version-top.png" \
+              --stats-json "previews/$version-top.json"
+            python scripts/render_strata_preview.py "$stage" "previews/$version-full.png" --full \
+              --stats-json "previews/$version-full.json"
+          done
+          python scripts/render_strata_preview.py "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-day.gif \
+            --sequence 8 --stats-json previews/26.3-day.json
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Strata previews"
+            echo
+            echo "| Render | Frames (s) | Total (s) | Drawn |"
+            echo "|---|---|---|---|"
+            for f in previews/*.json; do
+              python -c "import json,sys; s=json.load(open(sys.argv[1])); print(f\"| {sys.argv[1].split('/')[-1][:-5]} | {s['s_frames']} | {s['s_total']} | {s['coverage']:.0%} |\")" "$f"
+            done
+            echo
+            echo "GPU: $(python -c "import json,glob; print(json.load(open(sorted(glob.glob('previews/*.json'))[0]))['gpu'])" 2>/dev/null)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: strata-previews
+          path: previews/
+          if-no-files-found: error
