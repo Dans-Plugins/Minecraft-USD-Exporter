@@ -196,9 +196,32 @@ def test_an_explicit_library_path_must_exist(tmp_path, monkeypatch):
         rsp.resolve_library(None, rsp.read_lock())
 
 
-def test_struct_layouts_match_the_header_comments():
-    # strata.h: StrataRenderItem 44 bytes, StrataLineVertex 28, StrataSolarPosition 32
-    assert rsp.STRUCTS[0] == 44 and rsp.STRUCTS[10] == 28 and rsp.STRUCTS[13] == 32
+def test_numpy_records_match_the_header_comments():
+    # strata.h: StrataRenderItem 44 bytes, StrataLineVertex 28 (the binding is checked at load)
+    assert rsp.STRUCTS[0] == ("RenderItem", 44) and rsp.STRUCTS[10] == ("LineVertex", 28)
+
+
+def test_the_binding_and_the_lock_pin_the_same_release():
+    assert f"@v{rsp.read_lock()['version']}#" in rsp.BINDING_URL
+
+
+def test_claim_columns_are_the_overlay_boxes_without_shared_walls(tmp_path):
+    out = tmp_path / "usd"
+    assert export_main([str(ROOT / "tests" / "fixtures" / "world-26.3"), "--bbox", "-16", "-64", "-16", "15", "319", "15",
+                        "--claims", str(ROOT / "examples" / "claims.json"), "--out", str(out), "--quiet"]) == 0
+    stage = Usd.Stage.Open(str(out / "world.usda"))
+    columns = rsp.claim_columns(stage)
+    factions = rsp.read_claims(stage)
+    assert len(columns) == sum(len(f.chunks) for f in factions) > 0
+    owner = rsp.chunk_owner(factions)
+    for pos, nor, col, idx, alpha in columns:
+        assert alpha == pytest.approx(0.35) and len(pos) == len(nor) == len(col) and len(idx) % 6 == 0
+        cx, cz = (int(v) // 16 for v in pos.min(axis=0)[[0, 2]])
+        me = owner[(cx, cz)]
+        same = sum(owner.get(n) == me for n in ((cx + 1, cz), (cx - 1, cz), (cx, cz + 1), (cx, cz - 1)))
+        assert len(pos) == 4 * (1 + 4 - same)  # the top plus each side without a same-faction neighbour
+        assert np.allclose(col[0], factions[me].color, atol=1e-6)
+    assert rsp.claim_columns(Usd.Stage.Open(str(out / "terrain.usdc"))) == []
 
 
 # ------------------------------------------------------------------ blank check, framing, sun

@@ -43,6 +43,8 @@ jobs:
     env:
       # usd-web has no PyPI release: a full commit SHA on its main branch (0.2.2.dev0).
       USD_WEB_SHA: 03f1cd518b01276da2ecc73435ab2e821c5fba89
+      # strata-engine has no PyPI release: the tag of the library in scripts/strata.lock.json.
+      STRATA_BINDING_TAG: v0.5.0
       LIBGL_ALWAYS_SOFTWARE: "1"
       GALLIUM_DRIVER: llvmpipe
     steps:
@@ -54,8 +56,8 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends libegl1 libegl-mesa0 libgl1-mesa-dri fonts-dejavu-core
-      - name: Install the exporter, usd-web (pinned) and Pillow
-        run: python -m pip install . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@${USD_WEB_SHA}" pillow==12.0.0
+      - name: Install the exporter, usd-web (pinned), Strata's Python binding (tag) and Pillow
+        run: python -m pip install . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@${USD_WEB_SHA}" "strata-engine @ git+https://github.com/Preponderous-Software/strata@${STRATA_BINDING_TAG}#subdirectory=bindings/python" pillow==12.0.0
       - name: Export the fixture worlds with the example claims
         run: |
           for version in 1.21.11 26.3; do
@@ -72,6 +74,8 @@ jobs:
             python scripts/render_strata_preview.py "$stage" "previews/$version-full.png" --full \
               --stats-json "previews/$version-full.json"
           done
+          python scripts/render_strata_preview.py "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-columns.png \
+            --claim-columns --stats-json previews/26.3-columns.json
           python scripts/render_strata_preview.py "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-day.gif \
             --sequence 8 --stats-json previews/26.3-day.json
       - name: Summary

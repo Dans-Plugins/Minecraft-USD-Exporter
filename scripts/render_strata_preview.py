@@ -18,14 +18,18 @@ that USD output, not the exporter's in-memory arrays, so it shows what a user op
   chunks are tinted toward the faction colour, each claim's outer edge is traced
   over the terrain in that colour, and a legend is added with Pillow (Strata's text
   is 8 x 8 ASCII; faction names are player-chosen). ``--no-claims`` turns this off.
+  ``--claim-columns`` also draws the overlay's own translucent 16 x H x 16 boxes,
+  as the composed stage holds them (Strata ABI 1.11 translucent meshes).
 - **Camera and sun are fixed** (``--azimuth``/``--elevation``; ``--sun``/``--lat``/
   ``--lon``), so two runs on one export frame the same way. A fixed sun is a framing
   choice, not a claim about the world.
 - **``--sequence N``** renders N frames with the sun moving from just after sunrise
   to just before sunset on ``--sun``'s date and writes them as one animated GIF.
 
-Strata is reached through ``ctypes`` over its C ABI; every struct is checked
-against ``strata_struct_size`` before use. The library is the release pinned in
+Strata is reached through its official Python binding (``strata-engine``,
+``ctypes`` over the C ABI), which checks the ABI major version and every struct
+layout against the library at load; the terrain goes to Strata straight from
+NumPy arrays. The library is the release pinned in
 ``scripts/strata.lock.json``: pass ``--strata PATH`` (or set ``MCUSD_STRATA_LIB``),
 or the script downloads the pinned asset into a per-user cache, verifies its
 SHA-256 and deletes it on a mismatch. Headless rendering needs ``libEGL.so.1`` and
@@ -33,7 +37,8 @@ a Mesa driver; without a GPU use ``LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpi
 
 Not a project dependency (Linux x86-64 only, as released)::
 
-    pip install -e . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@03f1cd518b01276da2ecc73435ab2e821c5fba89" pillow
+    pip install -e . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@03f1cd518b01276da2ecc73435ab2e821c5fba89" \\
+        "strata-engine @ git+https://github.com/Preponderous-Software/strata@v0.5.0#subdirectory=bindings/python" pillow
 
 Exit status: 0 written; 1 rendering failed or the image came out blank; 2 bad
 input; 3 Strata (or EGL/Mesa) could not be loaded. This does not replace the
@@ -68,6 +73,8 @@ TINT = 0.35  # the exporter's CLAIM_OPACITY; how far a claimed block's colour mo
 DEFAULT_SUN = "2026-06-21T16:00:00Z"  # mid-morning at the default place
 DEFAULT_LAT, DEFAULT_LON = 40.0, -105.0
 ABI_MAJOR, ABI_MIN_MINOR = 1, 6  # meshes 1.4, lines 1.5, strata_solar_position 1.6
+# Strata's official Python binding, pinned to the tag of the release in strata.lock.json
+BINDING_URL = "git+https://github.com/Preponderous-Software/strata@v0.5.0#subdirectory=bindings/python"
 
 EXIT_RENDER, EXIT_INPUT, EXIT_STRATA = 1, 2, 3
 
@@ -269,6 +276,7 @@ class Scene:
     bounds: tuple = (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)  # x0, y0, z0, x1, y1, z1 of the drawn blocks
     focus_y: float = 0.0
     factions: list = field(default_factory=list)
+    columns: list = field(default_factory=list)  # translucent claim boxes: (pos, nor, col, idx, alpha)
     stats: dict = field(default_factory=dict)
 
 
@@ -401,6 +409,60 @@ def claim_lines(factions: list[Faction], height_at, layers=(0.5, 1.0, 1.5)) -> n
     return arr
 
 
+def claim_columns(stage) -> list[tuple]:
+    """The claims overlay's translucent boxes as Strata meshes: per claimed chunk, the
+    prototype box the exporter wrote (16 x H x 16, ``displayOpacity``), with the faces
+    between two chunks of one faction left out so the walls do not stack. Returns
+    ``(positions, normals, colours, indices, alpha)`` per chunk (one mesh each, so
+    Strata's back-to-front sort works per column)."""
+    from pxr import Usd, UsdGeom
+
+    root = stage.GetPrimAtPath(CLAIMS_PREFIX)
+    if not root:
+        return []
+    out = []
+    for prim in root.GetChildren():
+        for child in Usd.PrimRange(prim):
+            if not child.IsA(UsdGeom.PointInstancer):
+                continue
+            pi = UsdGeom.PointInstancer(child)
+            protos = [stage.GetPrimAtPath(p) for p in pi.GetPrototypesRel().GetTargets()]
+            if not protos:
+                continue
+            box = UsdGeom.Mesh(protos[0])
+            lo, hi = (np.array(v, dtype=np.float64) for v in box.GetExtentAttr().Get())
+            color = box.GetDisplayColorPrimvar().Get()
+            opacity = box.GetDisplayOpacityPrimvar().Get()
+            rgb = np.array(color[0] if color else (1.0, 1.0, 1.0), dtype=np.float32)
+            alpha = float(opacity[0]) if opacity else 0.35
+            pos = np.asarray(pi.GetPositionsAttr().Get() or [], dtype=np.float64).reshape(-1, 3)
+            m = np.array(pi.ComputeLocalToWorldTransform(Usd.TimeCode.Default()), dtype=np.float64)
+            world = (np.c_[pos, np.ones(len(pos))] @ m)[:, :3]
+            cells = {(int(math.floor(x / CHUNK)), int(math.floor(z / CHUNK))) for x, _, z in world}
+            for (x, y, z) in world:
+                cx, cz = int(math.floor(x / CHUNK)), int(math.floor(z / CHUNK))
+                a, b = np.array([x, y, z]) + lo, np.array([x, y, z]) + hi
+                faces = [(0, (a[0], b[1], a[2]), (b[0] - a[0], 0, 0), (0, 0, b[2] - a[2]))]  # top
+                for d, n, corner, u, v in ((1, (cx + 1, cz), (b[0], a[1], a[2]), (0, 0, b[2] - a[2]), (0, b[1] - a[1], 0)),
+                                           (2, (cx - 1, cz), (a[0], a[1], a[2]), (0, 0, b[2] - a[2]), (0, b[1] - a[1], 0)),
+                                           (3, (cx, cz + 1), (a[0], a[1], b[2]), (b[0] - a[0], 0, 0), (0, b[1] - a[1], 0)),
+                                           (4, (cx, cz - 1), (a[0], a[1], a[2]), (b[0] - a[0], 0, 0), (0, b[1] - a[1], 0))):
+                    if n not in cells:
+                        faces.append((d, corner, u, v))
+                verts, norms, idx = [], [], []
+                for d, corner, u, v in faces:
+                    c0, u, v = np.array(corner), np.array(u), np.array(v)
+                    k = len(verts)
+                    verts += [c0, c0 + u, c0 + u + v, c0 + v]
+                    norms += [NORMALS[d]] * 4
+                    idx += [k, k + 1, k + 2, k, k + 2, k + 3]  # both faces are drawn when translucent
+                pos32 = np.ascontiguousarray(verts, dtype=np.float32)
+                out.append((pos32, np.ascontiguousarray(norms, dtype=np.float32),
+                            np.ascontiguousarray(np.tile(rgb, (len(verts), 1)), dtype=np.float32),
+                            np.ascontiguousarray(idx, dtype=np.uint32), alpha))
+    return out
+
+
 # --------------------------------------------------------------------------- camera, sun, checks
 
 
@@ -526,132 +588,120 @@ def resolve_library(explicit: str | None, lock: dict, *, download=urllib.request
     return path
 
 
-class EngineDesc(C.Structure):
-    _fields_ = [("struct_size", C.c_uint32), ("abi_version", C.c_uint32), ("surface", C.c_int32),
-                ("width", C.c_int32), ("height", C.c_int32), ("flags", C.c_uint32), ("title", C.c_char_p),
-                ("get_proc_address", C.c_void_p), ("get_proc_address_user", C.c_void_p)]
-
-
-class Lighting(C.Structure):
-    _fields_ = [("mode", C.c_int32), ("legacy_direction", C.c_float * 3), ("legacy_ambient", C.c_float),
-                ("time_of_day", C.c_float), ("latitude_degrees", C.c_float), ("cascade_count", C.c_int32),
-                ("shadow_map_size", C.c_int32), ("shadow_distance", C.c_float), ("split_lambda", C.c_float),
-                ("fog", C.c_int32)]
-
-
-class SolarPosition(C.Structure):
-    _fields_ = [("to_sun", C.c_float * 3), ("elevation_degrees", C.c_float), ("azimuth_degrees", C.c_float),
-                ("declination_degrees", C.c_float), ("hour_angle_degrees", C.c_float),
-                ("equation_of_time_minutes", C.c_float)]
-
-
-class Mesh(C.Structure):
-    _fields_ = [("positions", C.c_void_p), ("normals", C.c_void_p), ("colors", C.c_void_p),
-                ("indices", C.c_void_p), ("vertex_count", C.c_int32), ("index_count", C.c_int32),
-                ("color", C.c_float * 4)]
-
-
-class FrameDesc(C.Structure):
-    _fields_ = [("clear_flags", C.c_uint32), ("clear_color", C.c_float * 4)]
-
-
-# (struct id, size in this binding)
-STRUCTS = {0: RENDER_ITEM.itemsize, 1: C.sizeof(EngineDesc), 3: C.sizeof(Lighting), 4: C.sizeof(FrameDesc),
-           9: C.sizeof(Mesh), 10: LINE_VERTEX.itemsize, 13: C.sizeof(SolarPosition)}
+# NumPy records passed to Strata without a copy: (binding struct, size of the record)
+STRUCTS = {0: ("RenderItem", RENDER_ITEM.itemsize), 10: ("LineVertex", LINE_VERTEX.itemsize)}
 SURFACE_HEADLESS, LIGHTING_SUN = 1, 1
-CLEAR_COLOR_DEPTH = 1 | 2  # a flat backdrop: Strata's analytic sky reads dark without an sRGB encode
+MESH_TRANSLUCENT = 0x2  # ABI 1.11
+COLUMNS_ABI_MINOR = 11
+
+
+def strata_binding():
+    """Strata's official Python binding (``strata-engine``), imported on first use."""
+    try:
+        import strata
+    except ImportError:
+        raise PreviewError("Strata's Python binding is not installed: pip install "
+                           f"\"strata-engine @ {BINDING_URL}\"", EXIT_STRATA) from None
+    return strata
 
 
 class Strata:
-    """The slice of Strata's C ABI a preview needs."""
+    """A preview's engine, through Strata's official Python binding. The binding checks
+    the ABI major version and every struct layout against the library when it loads;
+    the terrain arrays go to Strata straight from NumPy, without a copy."""
 
     def __init__(self, path: Path):
         try:
-            self.lib = L = C.CDLL(str(path))
+            cdll = C.CDLL(str(path))
         except OSError as exc:
             raise PreviewError(f"cannot load {path}: {exc}", EXIT_STRATA) from None
-        for name, res in (("strata_abi_version", C.c_uint32), ("strata_abi_minor", C.c_uint32),
-                          ("strata_version_string", C.c_char_p), ("strata_last_error", C.c_char_p),
-                          ("strata_struct_size", C.c_int32), ("strata_gpu_description", C.c_char_p)):
-            getattr(L, name).restype = res
-        L.strata_gpu_description.argtypes = [C.c_void_p]
-        L.strata_solar_position.argtypes = [C.c_double, C.c_double, C.c_double, C.POINTER(SolarPosition)]
-        major, minor = L.strata_abi_version(), L.strata_abi_minor()
-        if major != ABI_MAJOR or minor < ABI_MIN_MINOR:
-            raise PreviewError(f"Strata ABI {major}.{minor} is not {ABI_MAJOR}.>={ABI_MIN_MINOR}", EXIT_STRATA)
-        for sid, size in STRUCTS.items():
-            theirs = L.strata_struct_size(sid)
+        S = self.S = strata_binding()
+        try:
+            self.lib = S.Library(cdll, str(path))
+        except S.StrataError as exc:
+            raise PreviewError(f"{path}: {exc}", EXIT_STRATA) from None
+        if self.lib.abi_minor < ABI_MIN_MINOR:
+            raise PreviewError(f"Strata ABI {self.lib.abi_version}.{self.lib.abi_minor} is not "
+                               f"{ABI_MAJOR}.>={ABI_MIN_MINOR}", EXIT_STRATA)
+        for sid, (name, size) in STRUCTS.items():
+            theirs = C.sizeof(getattr(S, name))
             if theirs != size:
-                raise PreviewError(f"Strata struct {sid} is {theirs} bytes, this script expects {size}", EXIT_STRATA)
-        self.version = L.strata_version_string().decode()
+                raise PreviewError(f"Strata {name} is {theirs} bytes, this script's NumPy record is {size}",
+                                   EXIT_STRATA)
+        self.version = self.lib.version
         self.engine = None
 
-    def ok(self, status: int, what: str) -> None:
-        if status != 0:
-            raise PreviewError(f"{what}: status {status}: {self.lib.strata_last_error().decode()}")
+    @property
+    def has_translucent_meshes(self) -> bool:
+        return self.lib.abi_minor >= COLUMNS_ABI_MINOR
 
-    def solar(self, unix: float, lat: float, lon: float) -> SolarPosition:
-        sp = SolarPosition()
-        self.ok(self.lib.strata_solar_position(unix, lat, lon, C.byref(sp)), "strata_solar_position")
-        return sp
+    def call(self, fn, *args):
+        try:
+            return fn(*args)
+        except self.S.StrataError as exc:
+            raise PreviewError(str(exc)) from None
+
+    def solar(self, unix: float, lat: float, lon: float):
+        return self.call(self.lib.solar_position, unix, lat, lon)
 
     def create(self, width: int, height: int) -> None:
-        desc = EngineDesc(C.sizeof(EngineDesc), ABI_MAJOR, SURFACE_HEADLESS, width, height, 0, None, None, None)
-        eng = C.c_void_p()
-        status = self.lib.strata_create(C.byref(desc), C.byref(eng))
-        if status != 0:
-            raise PreviewError("strata_create (headless EGL) failed: " + self.lib.strata_last_error().decode()
-                               + " - is libEGL.so.1 with a Mesa driver installed?", EXIT_STRATA)
-        self.engine = eng
+        try:
+            self.engine = self.S.Engine(self.lib, width, height, surface=SURFACE_HEADLESS)
+        except self.S.StrataError as exc:
+            raise PreviewError(f"strata_create (headless EGL) failed: {exc}"
+                               " - is libEGL.so.1 with a Mesa driver installed?", EXIT_STRATA) from None
         self.size = (width, height)
-        self.gpu = self.lib.strata_gpu_description(eng).decode()
+        self.gpu = self.engine.gpu_description()
 
     def lighting(self, shadow_distance: float) -> None:
-        light = Lighting()
-        self.ok(self.lib.strata_lighting_defaults(LIGHTING_SUN, C.byref(light)), "strata_lighting_defaults")
+        light = self.call(self.lib.lighting_defaults, LIGHTING_SUN)
         light.cascade_count = 4
         light.shadow_map_size = 2048
         light.shadow_distance = shadow_distance
         light.fog = 0
-        self.ok(self.lib.strata_set_lighting(self.engine, C.byref(light)), "strata_set_lighting")
+        self.call(self.engine.set_lighting, light)
 
     def sun(self, to_sun) -> None:
-        self.ok(self.lib.strata_set_sun_direction(self.engine, (C.c_float * 3)(*to_sun)), "strata_set_sun_direction")
+        self.call(self.engine.set_sun_direction, tuple(to_sun))
 
     def camera(self, eye, target, fov: float, near: float, far: float) -> None:
         w, h = self.size
-        cam = (C.c_uint8 * self.lib.strata_struct_size(2))()
-        self.ok(self.lib.strata_camera_look_at((C.c_float * 3)(*eye), (C.c_float * 3)(*target),
-                                               (C.c_float * 3)(0, 1, 0), C.c_float(fov), C.c_float(w / h),
-                                               C.c_float(near), C.c_float(far), cam), "strata_camera_look_at")
-        self.ok(self.lib.strata_set_camera(self.engine, cam), "strata_set_camera")
+        cam = self.call(self.lib.look_at, tuple(map(float, eye)), tuple(map(float, target)), (0.0, 1.0, 0.0),
+                        fov, w / h, near, far)
+        self.call(self.engine.set_camera, cam)
 
-    def add_mesh(self, pos, nor, col, idx) -> None:
-        m = Mesh(pos.ctypes.data, nor.ctypes.data, col.ctypes.data, idx.ctypes.data, len(pos), len(idx),
-                 (C.c_float * 4)(1, 1, 1, 1))
+    def add_mesh(self, pos, nor, col, idx, alpha: float | None = None) -> None:
+        """One static mesh from NumPy arrays; ``alpha`` makes it translucent (ABI 1.11)."""
+        S, fp = self.S, C.POINTER(C.c_float)
+        m = S.Mesh()
+        m.positions, m.normals, m.colors = (a.ctypes.data_as(fp) for a in (pos, nor, col))
+        m.indices = idx.ctypes.data_as(C.POINTER(C.c_uint32))
+        m.vertex_count, m.index_count = len(pos), len(idx)
+        m.color[:] = [1.0, 1.0, 1.0, 1.0 if alpha is None else alpha]
         mid = C.c_uint32()
-        self.ok(self.lib.strata_add_mesh(self.engine, C.byref(m), C.byref(mid)), "strata_add_mesh")
+        if alpha is None:
+            self.lib.check(self.lib.raw.strata_add_mesh(self.engine.handle, C.byref(m), C.byref(mid)),
+                           "strata_add_mesh")
+            return
+        tm = S.TexturedMesh()
+        tm.mesh, tm.flags = m, MESH_TRANSLUCENT
+        self.lib.check(self.lib.require("strata_add_textured_mesh")(self.engine.handle, C.byref(tm), C.byref(mid)),
+                       "strata_add_textured_mesh")
 
     def frame(self, cubes=None, lines=None, backdrop=(0.62, 0.77, 0.92)) -> np.ndarray:
-        desc = FrameDesc(CLEAR_COLOR_DEPTH, (C.c_float * 4)(*backdrop, 1.0))
-        self.ok(self.lib.strata_begin_frame(self.engine, C.byref(desc)), "strata_begin_frame")
+        S = self.S
+        self.call(self.engine.begin_frame, (*backdrop, 1.0))
         if cubes is not None and len(cubes):
-            self.ok(self.lib.strata_submit_primitives(self.engine, C.c_void_p(cubes.ctypes.data), len(cubes)),
-                    "strata_submit_primitives")
+            self.call(self.engine.submit_primitives, (S.RenderItem * len(cubes)).from_buffer(cubes))
         if lines is not None and len(lines):
-            self.ok(self.lib.strata_submit_lines(self.engine, C.c_void_p(lines.ctypes.data), len(lines)),
-                    "strata_submit_lines")
-        self.ok(self.lib.strata_end_frame(self.engine), "strata_end_frame")
-        w, h = self.size
-        buf = np.zeros((h, w, 4), dtype=np.uint8)
-        ow, oh = C.c_int32(), C.c_int32()
-        self.ok(self.lib.strata_read_pixels_rgba8(self.engine, C.c_void_p(buf.ctypes.data), buf.nbytes,
-                                                  C.byref(ow), C.byref(oh)), "strata_read_pixels_rgba8")
-        return buf
+            self.call(self.engine.submit_lines, (S.LineVertex * len(lines)).from_buffer(lines))
+        self.call(self.engine.end_frame)
+        rgba, w, h = self.call(self.engine.read_pixels)
+        return np.frombuffer(rgba, dtype=np.uint8).reshape(h, w, 4).copy()
 
     def destroy(self) -> None:
         if self.engine:
-            self.lib.strata_destroy(self.engine)
+            self.engine.close()
             self.engine = None
 
 
@@ -723,7 +773,12 @@ def render(args) -> dict:
     stage = open_stage(Path(args.stage))
     strata = Strata(resolve_library(args.strata, read_lock()))  # fail fast, before the slow part
     factions = [] if args.no_claims else read_claims(stage)
+    if args.claim_columns and not strata.has_translucent_meshes:
+        raise PreviewError(f"--claim-columns needs Strata ABI 1.{COLUMNS_ABI_MINOR} (translucent meshes); "
+                           f"this library is {strata.lib.abi_version}.{strata.lib.abi_minor}", EXIT_STRATA)
     scene = build_cubes(stage, factions) if args.full else build_top_surface(stage, factions)
+    if args.claim_columns and not args.no_claims:
+        scene.columns = claim_columns(stage)
     w, h = args.size
     out = Path(args.out)
     gif = out.suffix.lower() == ".gif"
@@ -745,6 +800,8 @@ def render(args) -> dict:
         t = time.perf_counter()
         for m in scene.meshes:
             strata.add_mesh(*m)
+        for *m, alpha in scene.columns:
+            strata.add_mesh(*m, alpha=alpha)
         scene.stats["s_mesh_upload"] = round(time.perf_counter() - t, 3)
         frame_times = []
 
@@ -755,6 +812,8 @@ def render(args) -> dict:
             return px
 
         mode = "every visible block as a cube" if args.full else "top surface"
+        if scene.columns:
+            mode += " + claim columns"
         where = f"{abs(args.lat):g}{'N' if args.lat >= 0 else 'S'} {abs(args.lon):g}{'E' if args.lon >= 0 else 'W'}"
         if args.sequence:
             times = daylight_times(unix, args.lon, lambda u: strata.solar(u, args.lat, args.lon).elevation_degrees,
@@ -790,7 +849,7 @@ def render(args) -> dict:
             img.save(out, optimize=True)
         scene.stats.update(strata=strata.version, gpu=strata.gpu, s_frames=frame_times,
                            claim_line_vertices=int(len(scene.lines)) if scene.lines is not None else 0,
-                           factions=len(scene.factions), out=str(out))
+                           factions=len(scene.factions), claim_columns=len(scene.columns), out=str(out))
     finally:
         strata.destroy()
     return scene.stats
@@ -831,6 +890,9 @@ def parse_args(argv=None):
     p.add_argument("--elevation", type=float, default=38.0, help="camera elevation in degrees")
     p.add_argument("--fov", type=float, default=40.0)
     p.add_argument("--no-claims", action="store_true", help="ignore the claims overlay")
+    p.add_argument("--claim-columns", action="store_true",
+                   help="also draw the overlay's translucent claim boxes, as the composed stage holds them "
+                        "(Strata ABI 1.11)")
     p.add_argument("--no-legend", action="store_true")
     p.add_argument("--caption", help="replace the generated caption")
     p.add_argument("--sequence", type=int, default=0, metavar="N",
