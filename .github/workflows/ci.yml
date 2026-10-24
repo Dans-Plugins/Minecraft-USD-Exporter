@@ -44,7 +44,7 @@ jobs:
       # usd-web has no PyPI release: a full commit SHA on its main branch (0.2.2.dev0).
       USD_WEB_SHA: 03f1cd518b01276da2ecc73435ab2e821c5fba89
       # strata-engine has no PyPI release: the tag of the library in scripts/strata.lock.json.
-      STRATA_BINDING_TAG: v0.5.0
+      STRATA_BINDING_TAG: v0.6.0
       LIBGL_ALWAYS_SOFTWARE: "1"
       GALLIUM_DRIVER: llvmpipe
     steps:

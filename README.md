@@ -164,7 +164,7 @@ It needs Linux x86-64, `libEGL.so.1` with a Mesa driver (`apt install libegl1 li
 
 ```bash
 pip install -e . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@03f1cd518b01276da2ecc73435ab2e821c5fba89" \
-  "strata-engine @ git+https://github.com/Preponderous-Software/strata@v0.5.0#subdirectory=bindings/python" pillow
+  "strata-engine @ git+https://github.com/Preponderous-Software/strata@v0.6.0#subdirectory=bindings/python" pillow
 mc-usd-export tests/fixtures/world-26.3 --bbox -16 -64 -16 15 319 15 \
   --claims examples/claims.json --out out/
 export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe   # without a GPU
