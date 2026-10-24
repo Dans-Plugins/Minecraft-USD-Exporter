@@ -38,7 +38,7 @@ a Mesa driver; without a GPU use ``LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpi
 Not a project dependency (Linux x86-64 only, as released)::
 
     pip install -e . "usd-web @ git+https://github.com/Preponderous-Software/usd-web@03f1cd518b01276da2ecc73435ab2e821c5fba89" \\
-        "strata-engine @ git+https://github.com/Preponderous-Software/strata@v0.5.0#subdirectory=bindings/python" pillow
+        "strata-engine @ git+https://github.com/Preponderous-Software/strata@v0.6.0#subdirectory=bindings/python" pillow
 
 Exit status: 0 written; 1 rendering failed or the image came out blank; 2 bad
 input; 3 Strata (or EGL/Mesa) could not be loaded. This does not replace the
@@ -74,7 +74,7 @@ DEFAULT_SUN = "2026-06-21T16:00:00Z"  # mid-morning at the default place
 DEFAULT_LAT, DEFAULT_LON = 40.0, -105.0
 ABI_MAJOR, ABI_MIN_MINOR = 1, 6  # meshes 1.4, lines 1.5, strata_solar_position 1.6
 # Strata's official Python binding, pinned to the tag of the release in strata.lock.json
-BINDING_URL = "git+https://github.com/Preponderous-Software/strata@v0.5.0#subdirectory=bindings/python"
+BINDING_URL = "git+https://github.com/Preponderous-Software/strata@v0.6.0#subdirectory=bindings/python"
 
 EXIT_RENDER, EXIT_INPUT, EXIT_STRATA = 1, 2, 3
 
