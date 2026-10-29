@@ -4,14 +4,16 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from mcusd.cli import main
+from mcusd.cli import _size, main
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 WORLD = FIXTURES / "world-26.3"
 BBOX = ["-16", "-64", "-16", "15", "319", "15"]
+SLAB = ["-16", "60", "-16", "15", "70", "15"]  # the same four chunks, eleven layers high
 
 
 def test_not_a_world_exits_nonzero_naming_missing_path(tmp_path, capsys):
@@ -122,3 +124,79 @@ def test_bbox_requires_six_integers(capsys):
     with pytest.raises(SystemExit) as excinfo:
         main([str(WORLD), "--bbox", "1", "2", "3", "--out", "x"])
     assert excinfo.value.code == 2
+
+
+def test_unreadable_claims_are_an_input_error_and_nothing_is_written(tmp_path, capsys):
+    claims = tmp_path / "claims.json"
+    claims.write_text("{not json")
+    out = tmp_path / "out"
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "--claims", str(claims)])
+    assert code == 2 and "invalid JSON" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_missing_block_overrides_file_is_an_input_error(tmp_path, capsys):
+    overrides = tmp_path / "missing.json"
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(tmp_path / "out"),
+                 "--block-overrides", str(overrides)])
+    assert code == 2 and f"block overrides {overrides}:" in capsys.readouterr().err
+
+
+def test_claims_warnings_and_summary_are_reported(tmp_path, capsys):
+    """Claims outside the bbox are dropped; an unknown faction warns on stderr but still exports."""
+    world = "00000000-0000-4000-8000-000000000001"
+    doc = {"format": "mcusd-claims", "version": 1,
+           "factions": [{"id": "north", "name": "Northreach", "color": "#3366cc"}],
+           "claims": [{"worldId": world, "x": 0, "z": 0, "factionId": "north"},
+                      {"worldId": world, "x": 5, "z": 5, "factionId": "north"},
+                      {"worldId": world, "x": -1, "z": -1, "factionId": "ghost"}]}
+    claims = tmp_path / "claims.json"
+    claims.write_text(json.dumps(doc))
+    summary = tmp_path / "summary.json"
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(tmp_path / "out"), "--claims", str(claims),
+                 "--summary-json", str(summary)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "mc-usd-export: warning: claims reference unknown faction 'ghost'" in captured.err
+    assert "claims: 2 chunks for 2 factions" in captured.out
+    data = json.loads(summary.read_text())
+    assert (data["claims"], data["factions"]) == (2, 2)
+    assert set(data["files"]) == {"world.usda", "claims.usda", "terrain.usdc"}
+    assert len(data["warnings"]) == 1
+
+
+def test_no_claims_summary_line_without_claims(tmp_path, capsys):
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(tmp_path / "out")])
+    assert code == 0 and "claims:" not in capsys.readouterr().out
+
+
+def test_namespaced_dimension_id_is_accepted(tmp_path):
+    short, namespaced = tmp_path / "short.json", tmp_path / "namespaced.json"
+    assert main([str(WORLD), "--bbox", *SLAB, "--out", str(tmp_path / "a"), "-q",
+                 "--summary-json", str(short)]) == 0
+    assert main([str(WORLD), "--dimension", "minecraft:overworld", "--bbox", *SLAB, "--out", str(tmp_path / "b"),
+                 "-q", "--summary-json", str(namespaced)]) == 0
+    assert json.loads(namespaced.read_text())["instances"] == json.loads(short.read_text())["instances"]
+
+
+def test_unknown_dimension_is_rejected_by_the_parser(tmp_path, capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        main([str(WORLD), "--dimension", "minecraft:aether", "--bbox", *SLAB, "--out", str(tmp_path / "out")])
+    assert excinfo.value.code == 2 and "invalid choice" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "size, text",
+    [
+        (0, "0 B"),
+        (1023, "1023 B"),
+        (1024, "1.0 KB"),
+        (1536, "1.5 KB"),
+        (5 * 1024**2, "5.0 MB"),
+        (3 * 1024**3, "3.0 GB"),
+        (2 * 1024**4, "2048.0 GB"),  # GB is the largest unit
+    ],
+)
+def test_size_is_reported_in_binary_units(size, text):
+    path = SimpleNamespace(stat=lambda: SimpleNamespace(st_size=size))
+    assert _size(path) == text
