@@ -235,3 +235,112 @@ def test_lz4_block_larger_than_declared_size_is_rejected():
     stream[8] = (stream[8] & 0xF0) | 0  # declare 1 KiB blocks
     with pytest.raises(RegionError, match="block size"):
         R.decompress(bytes(stream), R.LZ4)
+
+
+def test_zero_length_chunk_names_chunk(tmp_path):
+    path = write_region(tmp_path / "r.0.0.mca", {(3, 4): chunk_bytes(3, 4)})
+    data = bytearray(path.read_bytes())
+    struct.pack_into(">I", data, 2 * 4096, 0)
+    path.write_bytes(bytes(data))
+    with pytest.raises(RegionError, match=r"chunk \(3, 4\).*zero-length chunk"):
+        RegionFile(path).read_chunk(3, 4)
+
+
+def test_truncated_chunk_data_is_rejected(tmp_path):
+    """The length field fits its sectors, but the file ends partway through the data."""
+    path = write_region(tmp_path / "r.0.0.mca", {(0, 0): chunk_bytes(0, 0)}, scheme=R.UNCOMPRESSED)
+    path.write_bytes(path.read_bytes()[: 2 * 4096 + 14])
+    with pytest.raises(RegionError, match="chunk data is truncated"):
+        RegionFile(path).read_chunk(0, 0)
+
+
+def test_malformed_lz4_chunk_names_file_and_chunk(tmp_path):
+    """LZ4 framing errors are re-raised with the chunk's location, as a plain RegionError."""
+    path = write_region(tmp_path / "r.1.1.mca", {(0, 0): chunk_bytes(32, 32)}, scheme=R.UNCOMPRESSED)
+    data = bytearray(path.read_bytes())
+    data[2 * 4096 + 4] = R.LZ4  # raw NBT relabelled as LZ4: no LZ4Block magic
+    path.write_bytes(bytes(data))
+    with pytest.raises(RegionError) as excinfo:
+        RegionFile(path).read_chunk(0, 0)
+    assert not isinstance(excinfo.value, UnsupportedCompressionError)
+    message = str(excinfo.value)
+    assert "r.1.1.mca" in message
+    assert "(32, 32)" in message
+    assert "LZ4Block magic" in message
+
+
+def test_lz4_truncated_block_header():
+    with pytest.raises(RegionError, match="truncated LZ4 block header"):
+        R.decompress(b"LZ4Block", R.LZ4)
+
+
+def test_lz4_wrong_magic():
+    with pytest.raises(RegionError, match="LZ4Block magic"):
+        R.decompress(b"\0" * 21, R.LZ4)
+
+
+def test_lz4_truncated_block_body():
+    stream = R.compress(bytes(random_bytes(3000)), R.LZ4)  # one raw 3000-byte block
+    with pytest.raises(RegionError, match=r"truncated LZ4 block$"):
+        R.decompress(stream[: 21 + 100], R.LZ4)
+
+
+def test_lz4_raw_block_with_mismatched_lengths():
+    stream = struct.pack("<8sBiii", b"LZ4Block", 0x16, 4, 5, 0) + b"abcd"
+    with pytest.raises(RegionError, match="raw LZ4 block has mismatched lengths"):
+        R.decompress(stream, R.LZ4)
+
+
+def test_lz4_unknown_block_method():
+    stream = struct.pack("<8sBiii", b"LZ4Block", 0x36, 4, 4, 0) + b"abcd"
+    with pytest.raises(RegionError, match="unknown LZ4Block method 0x30"):
+        R.decompress(stream, R.LZ4)
+
+
+def test_lz4_stream_without_end_marker_still_decodes():
+    payload = bytes(random_bytes(3000))
+    stream = R.compress(payload, R.LZ4)
+    assert R.decompress(stream[:-21], R.LZ4) == payload
+
+
+def test_compress_rejects_custom_scheme():
+    with pytest.raises(UnsupportedCompressionError, match="cannot write compression scheme 127"):
+        R.compress(b"data", R.CUSTOM)
+
+
+def test_write_region_rejects_out_of_range_slot(tmp_path):
+    path = tmp_path / "r.0.0.mca"
+    with pytest.raises(ValueError, match=r"out of range: \(32, 0\)"):
+        write_region(path, {(32, 0): chunk_bytes(32, 0)})
+    assert not path.exists()
+
+
+def test_write_region_requires_external_storage_past_255_sectors(tmp_path):
+    payload = bytes(255 * 4096)  # plus the 5-byte record header: 256 sectors
+    with pytest.raises(ValueError, match="needs 256 sectors; store it externally"):
+        write_region(tmp_path / "r.0.0.mca", {(0, 0): payload}, scheme=R.UNCOMPRESSED)
+    path = write_region(
+        tmp_path / "r.0.0.mca", {(0, 0): payload}, scheme=R.UNCOMPRESSED, external={(0, 0)}
+    )
+    region = RegionFile(path)
+    assert region.entries()[0].sector_count == 1
+    assert region.read_chunk(0, 0) == payload
+
+
+def test_region_and_external_file_names():
+    assert R.region_filename(-1, 2) == "r.-1.2.mca"
+    assert R.region_coords(R.region_filename(-3, 7)) == (-3, 7)
+    assert R.external_chunk_filename(-28, -32) == "c.-28.-32.mcc"
+    with pytest.raises(RegionError):
+        R.region_coords("r.0.0.mca.bak")
+
+
+def test_region_file_checks_name_before_reading(tmp_path):
+    with pytest.raises(RegionError, match="not a region file name"):
+        RegionFile(tmp_path / "level.dat")  # does not exist; the name is rejected first
+
+
+def test_chunk_coords_in_negative_region(tmp_path):
+    region = RegionFile(write_region(tmp_path / "r.-1.-2.mca", {}))
+    assert region.chunk_coords(31, 0) == (-1, -64)
+    assert region.chunk_coords(0, 31) == (-32, -33)
