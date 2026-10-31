@@ -2,16 +2,18 @@
 
 import numpy as np
 import pytest
+from nbt import nbt
 
 from mcusd.world.chunk import (
     ChunkFormatError,
     bits_for_palette,
     decode_chunk,
     pack_indices,
+    palette_entry_id,
     unpack_indices,
 )
 from mcusd.world.region import parse_nbt
-from tests.nbt_builders import chunk_nbt, section_nbt, to_bytes, volume_chunk_bytes
+from tests.nbt_builders import DATA_VERSION, chunk_nbt, section_nbt, to_bytes, volume_chunk_bytes
 
 PALETTE = ["minecraft:air", "minecraft:stone", "minecraft:glow_lichen", "minecraft:dirt"]
 
@@ -118,3 +120,92 @@ def test_status_reports_partial_chunks():
 def test_invalid_y_range():
     with pytest.raises(ValueError):
         decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0))), -60, 319)
+
+
+def _compound(name: str, value: str) -> nbt.TAG_Compound:
+    entry = nbt.TAG_Compound()
+    entry.tags.append(nbt.TAG_String(name=name, value=value))
+    return entry
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        nbt.TAG_String(value="minecraft:stone"),  # 26.x bare string
+        _compound("Name", "minecraft:stone"),  # 1.21.x
+        _compound("id", "minecraft:stone"),  # 26.x with properties
+        _compound("", "minecraft:stone"),  # 26.x string wrapped in a mixed list
+    ],
+)
+def test_palette_entry_id_shapes(entry):
+    assert palette_entry_id(entry) == "minecraft:stone"
+
+
+@pytest.mark.parametrize("entry", [_compound("Block", "minecraft:stone"), nbt.TAG_Int(value=1)])
+def test_palette_entry_id_rejects_unknown_shapes(entry):
+    with pytest.raises(ChunkFormatError, match="unrecognised block palette entry"):
+        palette_entry_id(entry)
+
+
+def test_pack_indices_pads_the_last_long():
+    # three 4-bit values fill the low 12 bits of one long; the rest is zero padding
+    assert pack_indices(np.array([1, 2, 3]), 4) == [0x321]
+    assert unpack_indices([0x321], 4, count=3).tolist() == [1, 2, 3]
+
+
+def test_pack_indices_values_never_span_longs():
+    # 5-bit values: 12 per long (60 bits), so the 13th starts the next long
+    words = pack_indices(np.array([31] * 12 + [1]), 5)
+    assert words == [2**60 - 1, 1]
+
+
+def test_chunk_without_data_version_is_rejected():
+    root = chunk_nbt(0, 0)
+    del root["DataVersion"]
+    with pytest.raises(ChunkFormatError, match="DataVersion -1"):
+        decode_chunk(parse_nbt(to_bytes(root)))
+
+
+def test_chunk_palette_merges_sections_in_first_seen_order():
+    lower = section_nbt(0, ["minecraft:stone", "minecraft:dirt"], np.zeros((16, 16, 16), dtype=int))
+    upper_indices = np.ones((16, 16, 16), dtype=int)
+    upper_indices[0, 0, 0] = 0
+    upper = section_nbt(1, ["minecraft:dirt", "minecraft:air"], upper_indices)
+    decoded = decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0, sections=[lower, upper]))))
+    assert decoded.palette == ["minecraft:air", "minecraft:stone", "minecraft:dirt"]
+    assert decoded.block_at(0, 0, 0) == "minecraft:stone"
+    assert decoded.block_at(0, 16, 0) == "minecraft:dirt"
+    assert decoded.block_at(1, 16, 0) == "minecraft:air"
+    assert decoded.blocks[64 + 17, 0, 0] == 0  # a section's local air shares global index 0
+
+
+def test_section_without_block_states_is_air():
+    section = section_nbt(0, ["minecraft:stone"])
+    del section["block_states"]
+    decoded = decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0, sections=[section]))))
+    assert decoded.palette == ["minecraft:air"]
+    assert not decoded.blocks.any()
+
+
+def test_decoded_chunk_metadata():
+    decoded = decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0))))
+    assert (decoded.min_y, decoded.max_y) == (-64, 319)
+    assert decoded.data_version == DATA_VERSION
+    assert decoded.status == "minecraft:full"
+    nether = decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0))), 0, 255)
+    assert (nether.min_y, nether.max_y) == (0, 255)
+
+
+def test_unprefixed_full_status_counts_as_full():
+    assert decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0, status="full")))).is_full
+    assert not decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0, status="")))).is_full
+
+
+def test_block_at_rejects_y_outside_the_volume():
+    decoded = decode_chunk(parse_nbt(to_bytes(chunk_nbt(0, 0))))
+    assert decoded.block_at(0, -64, 0) == "minecraft:air"
+    assert decoded.block_at(0, 319, 0) == "minecraft:air"
+    with pytest.raises(ValueError, match="outside chunk"):
+        decoded.block_at(0, -65, 0)
+    with pytest.raises(ValueError, match="outside chunk"):
+        decoded.block_at(0, 320, 0)
