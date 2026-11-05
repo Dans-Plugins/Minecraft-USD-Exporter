@@ -100,6 +100,28 @@ def test_bad_block_overrides_are_an_input_error(tmp_path, capsys):
     assert code == 2 and "unknown keys" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "content, message",
+    [
+        ('{"minecraft:stone": 3}', "expected a JSON object"),
+        ('{"minecraft:stone": null}', "expected a JSON object"),
+        ('{"minecraft:stone": []}', "expected a JSON object"),
+        ('{"minecraft:stone": {"color": 123}}', "must be a '#rrggbb' string"),
+        ('{"minecraft:stone": {"color": null}}', "must be a '#rrggbb' string"),
+    ],
+)
+def test_wrongly_typed_block_overrides_are_an_input_error(tmp_path, capsys, content, message):
+    """Valid JSON with the wrong shape exits 2 with a message, and nothing is written."""
+    overrides = tmp_path / "o.json"
+    overrides.write_text(content)
+    out = tmp_path / "out"
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "--block-overrides", str(overrides)])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "override for minecraft:stone" in err and message in err
+    assert not out.exists()
+
+
 def test_block_overrides_change_occlusion(tmp_path):
     """Marking water opaque lets the culler hide the sea floor beneath it."""
     base, over = tmp_path / "base.json", tmp_path / "over.json"
