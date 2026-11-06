@@ -358,28 +358,13 @@ def test_override_file_read_failures_are_oserror_and_valueerror(tmp_path):
         BlockCatalogue.from_file(path)
 
 
-def test_string_override_entry_is_a_valueerror():
-    with pytest.raises(ValueError):
-        BlockCatalogue({"minecraft:stone": "red"})
+@pytest.mark.parametrize("entry", [3, None, True, "red", "", [], ["color"]])
+def test_non_object_override_entries_name_the_block_and_the_expected_shape(entry):
+    with pytest.raises(ValueError, match="override for minecraft:stone: expected a JSON object"):
+        BlockCatalogue({"minecraft:stone": entry})
 
 
-@pytest.mark.parametrize("entry", [[], ""])
-def test_empty_non_object_override_entries_are_accepted_as_no_override(entry):
-    cat = BlockCatalogue({"minecraft:stone": entry})
-    assert cat.info("minecraft:stone") == BlockCatalogue().info("minecraft:stone")
-
-
-@pytest.mark.parametrize(
-    "overrides, error",
-    [
-        ({"minecraft:stone": 3}, TypeError),
-        ({"minecraft:stone": None}, TypeError),
-        ({"minecraft:stone": {"color": 123}}, AttributeError),
-        ({"minecraft:stone": {"color": None}}, AttributeError),
-    ],
-)
-def test_wrongly_typed_overrides_raise_outside_the_input_error_families(overrides, error):
-    # Current behaviour, pinned rather than endorsed (#35): export_world only turns OSError
-    # and ValueError into an input error, so these reach the user as a traceback, not exit 2.
-    with pytest.raises(error):
-        BlockCatalogue(overrides)
+@pytest.mark.parametrize("color", [123, None, True, ["#ff0000"], {}])
+def test_non_string_override_colours_name_the_block(color):
+    with pytest.raises(ValueError, match="override for minecraft:stone: 'color' must be a '#rrggbb' string"):
+        BlockCatalogue({"minecraft:stone": {"color": color}})

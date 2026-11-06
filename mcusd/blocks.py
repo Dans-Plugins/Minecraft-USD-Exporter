@@ -205,15 +205,21 @@ class BlockCatalogue:
     """
 
     def __init__(self, overrides: dict[str, dict] | None = None):
-        self._overrides = {k: dict(v) for k, v in (overrides or {}).items()}
-        for block_id, entry in self._overrides.items():
+        self._overrides: dict[str, dict] = {}
+        for block_id, entry in (overrides or {}).items():
+            if not isinstance(entry, dict):
+                raise ValueError(f"override for {block_id}: expected a JSON object, got {entry!r}")
             unknown = set(entry) - {"color", "opaque"}
             if unknown:
                 raise ValueError(f"override for {block_id}: unknown keys {sorted(unknown)}")
             if "color" in entry:
+                if not isinstance(entry["color"], str):
+                    raise ValueError(f"override for {block_id}: 'color' must be a '#rrggbb' string, "
+                                     f"got {entry['color']!r}")
                 _hex(entry["color"])
             if "opaque" in entry and not isinstance(entry["opaque"], bool):
                 raise ValueError(f"override for {block_id}: 'opaque' must be true or false")
+            self._overrides[block_id] = dict(entry)
         self._cache: dict[str, BlockInfo] = {}
         self._names: dict[str, str] = {}
 
