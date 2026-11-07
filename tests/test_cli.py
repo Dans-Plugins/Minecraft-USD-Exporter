@@ -6,7 +6,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
+from pxr import Usd, UsdGeom
 
 from mcusd.cli import _size, main
 
@@ -120,6 +122,66 @@ def test_wrongly_typed_block_overrides_are_an_input_error(tmp_path, capsys, cont
     assert code == 2
     assert "override for minecraft:stone" in err and message in err
     assert not out.exists()
+
+
+def claim_box(out):
+    """The stage, instancer and box mesh of the only faction in an exported claims overlay."""
+    stage = Usd.Stage.Open(str(out / "overlays" / "claims.usda"))
+    inst = next(UsdGeom.PointInstancer(p) for p in stage.Traverse() if p.IsA(UsdGeom.PointInstancer))
+    (box_path,) = inst.GetPrototypesRel().GetTargets()
+    return stage, inst, UsdGeom.Mesh(stage.GetPrimAtPath(box_path))
+
+
+@pytest.mark.parametrize(
+    "y1, y2, floor, height",
+    [
+        (300, 500, 300, 20),  # top clamped to 319
+        (-100, -60, -64, 5),  # bottom clamped to -64
+        (-100, 500, -64, 384),  # both clamped
+    ],
+)
+def test_claim_boxes_span_the_bbox_clamped_to_the_dimension(tmp_path, y1, y2, floor, height):
+    claims = write_claims(tmp_path, ["00000000-0000-4000-8000-000000000001"])
+    out = tmp_path / "out"
+    code = main([str(WORLD), "--bbox", "-16", str(y1), "-16", "15", str(y2), "15", "--out", str(out), "-q",
+                 "--claims", str(claims)])
+    assert code == 0
+    _stage, inst, box = claim_box(out)
+    assert [tuple(p) for p in inst.GetPositionsAttr().Get()] == [(0, floor, 0)]
+    assert np.array(box.GetPointsAttr().Get()).max(axis=0).tolist() == [16, height, 16]
+
+
+def test_bbox_above_the_dimension_writes_inside_out_claim_boxes(tmp_path):
+    """Current behaviour, not endorsed: no terrain, yet claims get a negative height and exit is 0."""
+    claims = write_claims(tmp_path, ["00000000-0000-4000-8000-000000000001"])
+    out, summary = tmp_path / "out", tmp_path / "summary.json"
+    code = main([str(WORLD), "--bbox", "-16", "400", "-16", "15", "500", "15", "--out", str(out), "-q",
+                 "--claims", str(claims), "--summary-json", str(summary)])
+    assert code == 0
+    data = json.loads(summary.read_text())
+    assert (data["instances"], data["claims"]) == (0, 1)
+    _stage, inst, box = claim_box(out)
+    assert np.array(box.GetPointsAttr().Get())[:, 1].min() == -80
+    lo, hi = inst.GetExtentAttr().Get()
+    assert (lo[1], hi[1]) == (400, 320)
+
+
+def test_out_naming_a_file_escapes_as_an_exception(tmp_path):
+    """Current behaviour, not endorsed: the OSError is not turned into exit status 2."""
+    out = tmp_path / "out"
+    out.write_text("keep me")
+    with pytest.raises(FileExistsError):
+        main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q"])
+    assert out.read_text() == "keep me"
+
+
+def test_summary_json_in_a_missing_directory_escapes_after_the_export(tmp_path):
+    """Current behaviour, not endorsed: the stage is complete, but the OSError is not reported."""
+    out = tmp_path / "out"
+    with pytest.raises(FileNotFoundError):
+        main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q",
+              "--summary-json", str(tmp_path / "missing" / "summary.json")])
+    assert (out / "world.usda").is_file()
 
 
 def test_block_overrides_change_occlusion(tmp_path):

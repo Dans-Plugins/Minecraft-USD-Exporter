@@ -3,7 +3,7 @@
 from pxr import Sdf, Usd, UsdGeom
 
 from mcusd import __version__
-from mcusd.usd.stage import root_filename, write_root_layer
+from mcusd.usd.stage import _relative, root_filename, write_root_layer
 
 
 def make_layer(path, probe):
@@ -77,3 +77,14 @@ def test_rewriting_replaces_the_previous_root_layer(tmp_path):
     assert list(layer.subLayerPaths) == ["./terrain.usdc"]
     assert list(layer.customLayerData["mcusd:bbox"]) == [16, 0, 16, 31, 15, 31]
     assert Usd.Stage.Open(layer).GetPrimAtPath("/World").GetAttribute("mcusd:probe").Get() == 1
+
+
+def test_root_layer_only_composes_and_authors_no_prims(tmp_path):
+    make_layer(tmp_path / "terrain.usdc", 1)
+    layer = Sdf.Layer.FindOrOpen(str(write(tmp_path)))
+    assert len(layer.rootPrims) == 0
+
+
+def test_sublayer_paths_are_dot_relative_with_forward_slashes(tmp_path):
+    assert _relative(tmp_path / "overlays" / "claims.usda", tmp_path) == "./overlays/claims.usda"
+    assert _relative(tmp_path / "terrain.usdc", tmp_path / "root") == "./../terrain.usdc"

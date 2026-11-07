@@ -8,9 +8,9 @@ import pytest
 from pxr import Sdf, Usd, UsdGeom
 
 from mcusd.blocks import hashed_color, parse_color
-from mcusd.overlays.claims_input import ClaimsError, load_claims
+from mcusd.overlays.claims_input import Claim, ClaimsError, load_claims
 from mcusd.select import BBox
-from mcusd.usd.claims import claims_in_bbox, faction_prim_name, write_claims_layer
+from mcusd.usd.claims import claims_filename, claims_in_bbox, faction_prim_name, write_claims_layer
 
 WORLD = "9c2e7d1a-5b3f-4c8e-a1d2-3e4f5a6b7c8d"
 OTHER_WORLD = "11111111-2222-4333-8444-555555555555"
@@ -295,3 +295,122 @@ def test_example_file_loads(tmp_path):
     data, stats, stage = overlay(tmp_path, EXAMPLE)
     assert data.source_kind == "native" and not data.warnings
     assert stats.factions == 2 and stats.claims == 4
+
+
+def claim(x, z, faction=NORTH):
+    return Claim(WORLD, x, z, faction)
+
+
+def chunks_of(stage, faction_id):
+    return UsdGeom.PointInstancer(stage.GetPrimAtPath(f"/World/Overlays/Claims/{faction_prim_name(faction_id)}/Chunks"))
+
+
+def box_of(stage, inst):
+    (box_path,) = inst.GetPrototypesRel().GetTargets()
+    return UsdGeom.Mesh(stage.GetPrimAtPath(box_path))
+
+
+def test_claims_filename_follows_binary_flag():
+    assert claims_filename(False) == "claims.usda"
+    assert claims_filename(True) == "claims.usdc"
+
+
+def test_stats_count_chunks_per_faction(tmp_path):
+    _, stats, _ = overlay(tmp_path, native(tmp_path))
+    assert (stats.factions, stats.claims) == (2, 3)
+    assert stats.per_faction == {NORTH: 2, SOUTH: 1}
+
+
+def test_chunks_are_deduplicated_and_ordered_by_z_then_x(tmp_path):
+    data = load_claims(native(tmp_path))
+    stats = write_claims_layer(tmp_path / "out", data, [claim(5, 2), claim(1, 3), claim(3, 2), claim(5, 2)],
+                               min_y=0, max_y=15)
+    assert stats.claims == 3 and stats.per_faction == {NORTH: 3}
+    stage = Usd.Stage.Open(str(stats.path))
+    inst = chunks_of(stage, NORTH)
+    assert [tuple(p) for p in inst.GetPositionsAttr().Get()] == [(48, 0, 32), (80, 0, 32), (16, 0, 48)]
+    assert list(inst.GetProtoIndicesAttr().Get()) == [0, 0, 0]
+
+
+@pytest.mark.parametrize("min_y, max_y, height", [(60, 70, 11), (64, 64, 1)])
+def test_box_height_spans_the_y_range_inclusively(tmp_path, min_y, max_y, height):
+    _, _, stage = overlay(tmp_path, native(tmp_path), min_y=min_y, max_y=max_y)
+    inst = chunks_of(stage, SOUTH)
+    assert [tuple(p) for p in inst.GetPositionsAttr().Get()] == [(-16, min_y, 0)]
+    assert np.array(box_of(stage, inst).GetPointsAttr().Get()).max(axis=0).tolist() == [16, height, 16]
+    assert [tuple(v) for v in inst.GetExtentAttr().Get()] == [(-16, min_y, 0), (0, min_y + height, 16)]
+
+
+def test_inverted_y_range_gives_inside_out_boxes(tmp_path):
+    """Current behaviour, not endorsed: nothing rejects ``max_y < min_y``, so height goes negative."""
+    _, _, stage = overlay(tmp_path, native(tmp_path), min_y=400, max_y=319)
+    inst = chunks_of(stage, SOUTH)
+    assert np.array(box_of(stage, inst).GetPointsAttr().Get())[:, 1].min() == -80
+    lo, hi = inst.GetExtentAttr().Get()
+    assert (lo[1], hi[1]) == (400, 320)
+
+
+def test_faction_colour_is_on_the_xform_and_the_box(tmp_path):
+    _, _, stage = overlay(tmp_path, native(tmp_path))
+    faction = stage.GetPrimAtPath(f"/World/Overlays/Claims/{faction_prim_name(NORTH)}")
+    primvar = UsdGeom.PrimvarsAPI(faction).GetPrimvar("displayColor")
+    assert primvar.GetInterpolation() == UsdGeom.Tokens.constant
+    assert list(primvar.Get()[0]) == pytest.approx(parse_color("#3366cc"))
+    box = box_of(stage, chunks_of(stage, NORTH))
+    assert box.GetPath() == faction.GetPath().AppendPath(Sdf.Path("Chunks/Prototypes/Box"))
+    assert list(box.GetDisplayColorPrimvar().Get()[0]) == pytest.approx(parse_color("#3366cc"))
+
+
+def test_no_claims_still_writes_a_valid_empty_overlay(tmp_path):
+    data = load_claims(native(tmp_path))
+    stats = write_claims_layer(tmp_path / "out", data, [], min_y=0, max_y=15)
+    assert (stats.factions, stats.claims, stats.per_faction) == (0, 0, {})
+    stage = Usd.Stage.Open(str(stats.path))
+    assert stage.GetDefaultPrim().GetPath() == Sdf.Path("/World")
+    assert UsdGeom.GetStageUpAxis(stage) == UsdGeom.Tokens.y
+    assert UsdGeom.GetStageMetersPerUnit(stage) == 1.0
+    assert stage.GetPrimAtPath("/World/Overlays").IsA(UsdGeom.Scope)
+    claims = stage.GetPrimAtPath("/World/Overlays/Claims")
+    assert claims.IsA(UsdGeom.Xform) and not claims.GetChildren()
+
+
+def test_rewriting_replaces_the_previous_overlay(tmp_path):
+    overlay(tmp_path, native(tmp_path))
+    _, _, stage = overlay(tmp_path, native(tmp_path, claims=CLAIMS[2:], name="south.json"))
+    names = [p.GetName() for p in stage.GetPrimAtPath("/World/Overlays/Claims").GetChildren()]
+    assert names == [faction_prim_name(SOUTH)]
+
+
+@pytest.mark.parametrize(
+    "chunk, bbox, touched",
+    [
+        ((0, 0), BBox(0, 0, 0, 0, 0, 0), True),  # first block of the chunk
+        ((0, 0), BBox(15, 0, 15, 15, 0, 15), True),  # last block of the chunk
+        ((0, 0), BBox(16, 0, 0, 40, 0, 0), False),
+        ((0, 0), BBox(-8, 0, 0, -1, 0, 0), False),
+        ((0, 0), BBox(0, 0, 16, 0, 0, 40), False),
+        ((0, 0), BBox(0, 0, -8, 0, 0, -1), False),
+        ((0, 0), BBox(0, 500, 0, 15, 600, 15), True),  # Y plays no part
+        ((-1, -1), BBox(-16, 0, -16, -16, 0, -16), True),
+        ((-1, -1), BBox(-1, 0, -1, -1, 0, -1), True),
+        ((-1, -1), BBox(0, 0, 0, 0, 0, 0), False),
+    ],
+)
+def test_claims_in_bbox_is_inclusive_and_ignores_y(chunk, bbox, touched):
+    claimed = claim(*chunk)
+    assert claims_in_bbox([claimed], bbox) == ([claimed] if touched else [])
+
+
+@pytest.mark.parametrize(
+    "faction_id, name",
+    [
+        ("north1", "faction_north1"),
+        ("a-b", "faction_a_2db"),
+        ("a_b", "faction_a_5fb"),
+        ("Faction One", "faction_Faction_20One"),
+        ("ü", "faction__c3_bc"),
+        ("", "faction_"),
+    ],
+)
+def test_faction_prim_name_escapes_each_byte(faction_id, name):
+    assert faction_prim_name(faction_id) == name

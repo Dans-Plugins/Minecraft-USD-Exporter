@@ -4,17 +4,22 @@ import numpy as np
 import pytest
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom
 
-from mcusd.blocks import BlockCatalogue
-from mcusd.cull import cull_region
+from mcusd.blocks import BlockCatalogue, BlockIdTable
+from mcusd.cull import CullResult, cull_region
 from mcusd.select import BBox, ChunkSource, iter_region_volumes
 from mcusd.usd.terrain import (
     TERRAIN_FILENAME,
     TerrainWriter,
+    define_unit_cube,
     instance_ids,
     region_prim_name,
 )
-from mcusd.world.layout import locate
+from mcusd.world.layout import DIMENSIONS, locate
 from tests.nbt_builders import random_chunks, write_world
+
+STONE = "minecraft:stone"
+DIRT = "minecraft:dirt"
+GOLD = "minecraft:gold_block"
 
 
 def export_terrain(tmp_path, chunks, bbox, catalogue=None, **world_kwargs):
@@ -210,3 +215,163 @@ def test_each_region_is_persisted_as_it_is_written(tmp_path):
     stage = Usd.Stage.Open(str(stats.path))
     assert sum(len(i.GetPositionsAttr().Get()) for i in instancers(stage)) == stats.instances
     assert stage.GetPrimAtPath("/World/BlockLibrary").GetAttribute("mcusd:blockIds").Get()
+
+
+def direct_writer(tmp_path, *block_ids, dimension="overworld"):
+    """A writer for hand-built cull results, so a case needs no world on disk."""
+    table = BlockIdTable()
+    for block_id in block_ids:
+        table.index(block_id)
+    return TerrainWriter(tmp_path / "out", BlockCatalogue(), table, DIMENSIONS[dimension]), table
+
+
+def cull_result(table, region_x, region_z, cells):
+    """A :class:`CullResult` from ``[((x, y, z), block_id), ...]`` in absolute coordinates."""
+    positions = np.array([p for p, _ in cells], dtype=np.int32).reshape(-1, 3)
+    block_ids = np.array([table.index(b) for _, b in cells], dtype=np.uint16)
+    return CullResult(region_x, region_z, positions, block_ids, culled=0, air=0)
+
+
+@pytest.mark.parametrize(
+    "region, position",
+    [
+        ((0, 0), (512, 0, 0)),
+        ((0, 0), (-1, 0, 0)),
+        ((0, 0), (0, 0, 512)),
+        ((0, 0), (0, 0, -1)),
+        ((-1, 0), (0, 0, 0)),
+    ],
+)
+def test_positions_outside_the_region_are_rejected_before_anything_is_authored(tmp_path, region, position):
+    writer, table = direct_writer(tmp_path, STONE)
+    with pytest.raises(ValueError, match="outside the region"):
+        writer.add_region(cull_result(table, *region, [(position, STONE)]))
+    assert writer.stats.regions == writer.stats.instances == 0
+    assert not writer.stage.GetPrimAtPath("/World/Terrain").GetChildren()
+
+
+def test_negative_region_in_the_nether_is_exactly_region_local(tmp_path):
+    """Positions, IDs (with the Nether's min_y of 0), extent and translate, value by value."""
+    writer, table = direct_writer(tmp_path, STONE, dimension="the_nether")
+    writer.add_region(cull_result(table, -1, -1, [((-511, 5, -510), STONE), ((-509, 7, -510), STONE)]))
+    stage = Usd.Stage.Open(str(writer.close().path))
+    region = stage.GetPrimAtPath("/World/Terrain/r_n1_n1")
+    assert UsdGeom.Xformable(region).GetOrderedXformOps()[0].Get() == Gf.Vec3d(-512, 0, -512)
+    inst = UsdGeom.PointInstancer(region.GetChild("Blocks"))
+    assert [tuple(p) for p in inst.GetPositionsAttr().Get()] == [(1, 5, 2), (3, 7, 2)]
+    assert list(inst.GetIdsAttr().Get()) == [5 * 512 * 512 + 2 * 512 + 1, 7 * 512 * 512 + 2 * 512 + 3]
+    assert [tuple(v) for v in inst.GetExtentAttr().Get()] == [(1, 5, 2), (4, 8, 3)]
+
+
+def test_block_y_stays_absolute_because_the_region_translate_has_no_y(tmp_path):
+    writer, table = direct_writer(tmp_path, STONE)
+    writer.add_region(cull_result(table, 0, 0, [((0, -64, 0), STONE)]))
+    stage = Usd.Stage.Open(str(writer.close().path))
+    inst = UsdGeom.PointInstancer(stage.GetPrimAtPath("/World/Terrain/r_0_0/Blocks"))
+    assert [tuple(p) for p in inst.GetPositionsAttr().Get()] == [(0, -64, 0)]
+    assert list(inst.GetIdsAttr().Get()) == [0]
+
+
+def test_prototypes_follow_table_order_not_first_appearance(tmp_path):
+    writer, table = direct_writer(tmp_path, STONE, DIRT)
+    writer.add_region(cull_result(table, 0, 0, [((0, 0, 0), DIRT), ((1, 0, 0), STONE), ((2, 0, 0), DIRT)]))
+    stage = Usd.Stage.Open(str(writer.close().path))
+    inst = UsdGeom.PointInstancer(stage.GetPrimAtPath("/World/Terrain/r_0_0/Blocks"))
+    assert [t.name for t in inst.GetPrototypesRel().GetTargets()] == ["stone", "dirt"]
+    assert list(inst.GetProtoIndicesAttr().Get()) == [1, 0, 1]
+    assert list(UsdGeom.PrimvarsAPI(inst).GetPrimvar("mcusd:blockId").Get()) == [2, 1, 2]
+
+
+def test_modded_block_keeps_its_encoded_prim_name_and_namespaced_id(tmp_path):
+    writer, table = direct_writer(tmp_path, "mymod:stone")
+    writer.add_region(cull_result(table, 0, 0, [((0, 0, 0), "mymod:stone")]))
+    stage = Usd.Stage.Open(str(writer.close().path))
+    proto = stage.GetPrimAtPath("/World/Terrain/r_0_0/Blocks/Prototypes/_mymod_3astone")
+    assert proto.GetAttribute("mcusd:namespacedId").Get() == "mymod:stone"
+    assert Sdf.Path("/World/BlockLibrary/_mymod_3astone") in proto.GetInherits().GetAllDirectInherits()
+
+
+def test_stats_count_regions_instances_and_shared_prototypes(tmp_path):
+    writer, table = direct_writer(tmp_path, STONE, DIRT, GOLD)
+    writer.add_region(cull_result(table, 0, 0, [((0, 0, 0), STONE), ((1, 0, 0), DIRT)]))
+    writer.add_region(cull_result(table, -1, 0, [((-1, 0, 0), STONE), ((-2, 0, 0), GOLD), ((-3, 0, 0), GOLD)]))
+    stats = writer.close()
+    assert stats.path == tmp_path / "out" / TERRAIN_FILENAME
+    assert (stats.regions, stats.instances, stats.prototypes) == (2, 5, 3)
+    assert stats.per_region == {(0, 0): 2, (-1, 0): 3}
+    stage = Usd.Stage.Open(str(stats.path))
+    library = stage.GetPrimAtPath("/World/BlockLibrary")
+    assert sorted(p.GetName() for p in library.GetAllChildren()) == ["dirt", "gold_block", "stone"]
+
+
+def test_block_id_table_lists_unused_entries_but_the_library_does_not(tmp_path):
+    """Indices stay valid for every region: the table is whole, the library only what was used."""
+    writer, table = direct_writer(tmp_path, STONE, DIRT)
+    writer.add_region(cull_result(table, 0, 0, [((0, 0, 0), DIRT)]))
+    stats = writer.close()
+    stage = Usd.Stage.Open(str(stats.path))
+    library = stage.GetPrimAtPath("/World/BlockLibrary")
+    assert list(library.GetAttribute("mcusd:blockIds").Get()) == ["minecraft:air", STONE, DIRT]
+    assert [p.GetName() for p in library.GetAllChildren()] == ["dirt"]
+    assert stats.prototypes == 1
+
+
+def test_empty_result_changes_no_stats(tmp_path):
+    writer, table = direct_writer(tmp_path, STONE)
+    writer.add_region(cull_result(table, 3, 4, []))
+    stats = writer.close()
+    assert stats.regions == stats.instances == stats.prototypes == 0
+    assert stats.per_region == {}
+
+
+def test_rewriting_replaces_the_previous_terrain_file(tmp_path):
+    def write(region_x):
+        writer, table = direct_writer(tmp_path, STONE)
+        writer.add_region(cull_result(table, region_x, 0, [((region_x * 512, 0, 0), STONE)]))
+        return writer.close()
+
+    write(0)
+    stats = write(1)
+    assert stats.regions == 1
+    stage = Usd.Stage.Open(str(stats.path))
+    assert [p.GetName() for p in stage.GetPrimAtPath("/World/Terrain").GetChildren()] == ["r_1_0"]
+
+
+def test_region_prim_names_for_each_sign_combination():
+    assert region_prim_name(0, 0) == "r_0_0"
+    assert region_prim_name(3, 4) == "r_3_4"
+    assert region_prim_name(0, -1) == "r_0_n1"
+    assert region_prim_name(-3, -4) == "r_n3_n4"
+
+
+@pytest.mark.parametrize(
+    "position, min_y, expected",
+    [
+        ([0, -64, 0], -64, 0),
+        ([1, 0, 1], 0, 513),
+        ([1, 2, 3], 0, 2 * 512 * 512 + 3 * 512 + 1),
+    ],
+)
+def test_instance_ids_subtract_the_dimension_floor(position, min_y, expected):
+    assert instance_ids(np.array([position]), min_y).tolist() == [expected]
+
+
+def test_instance_ids_are_int64_for_any_input_dtype():
+    assert instance_ids(np.array([[1, 2, 3]], dtype=np.float32), 0).dtype == np.int64
+
+
+def test_unit_cube_scales_and_authors_opacity_only_on_request():
+    stage = Usd.Stage.CreateInMemory()
+    box = define_unit_cube(stage, Sdf.Path("/Box"), (0.1, 0.2, 0.3), size=(2.0, 3.0, 4.0), opacity=0.5)
+    points = np.array(box.GetPointsAttr().Get())
+    assert points.min(axis=0).tolist() == [0, 0, 0] and points.max(axis=0).tolist() == [2, 3, 4]
+    assert [tuple(v) for v in box.GetExtentAttr().Get()] == [(0, 0, 0), (2, 3, 4)]
+    assert box.GetSubdivisionSchemeAttr().Get() == UsdGeom.Tokens.none
+    assert box.GetDisplayColorPrimvar().GetInterpolation() == UsdGeom.Tokens.constant
+    assert list(box.GetDisplayColorPrimvar().Get()[0]) == pytest.approx([0.1, 0.2, 0.3])
+    assert box.GetDisplayOpacityPrimvar().GetInterpolation() == UsdGeom.Tokens.constant
+    assert list(box.GetDisplayOpacityPrimvar().Get()) == pytest.approx([0.5])
+
+    plain = define_unit_cube(stage, Sdf.Path("/Plain"), (0.1, 0.2, 0.3))
+    assert np.array(plain.GetPointsAttr().Get()).max(axis=0).tolist() == [1, 1, 1]
+    assert not plain.GetDisplayOpacityPrimvar().HasAuthoredValue()
