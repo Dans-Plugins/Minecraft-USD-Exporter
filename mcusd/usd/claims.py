@@ -67,7 +67,7 @@ def write_claims_layer(out_dir: str | Path, data: ClaimsData, claims: list[Claim
     """
     if max_y < min_y:
         raise ValueError(f"claim box Y range {min_y}..{max_y} is empty (max_y < min_y)")
-    path =Path(out_dir) / "overlays" / claims_filename(binary)
+    path = Path(out_dir) / "overlays" / claims_filename(binary)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         path.unlink()
