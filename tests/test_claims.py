@@ -341,13 +341,11 @@ def test_box_height_spans_the_y_range_inclusively(tmp_path, min_y, max_y, height
     assert [tuple(v) for v in inst.GetExtentAttr().Get()] == [(-16, min_y, 0), (0, min_y + height, 16)]
 
 
-def test_inverted_y_range_gives_inside_out_boxes(tmp_path):
-    """Current behaviour, not endorsed: nothing rejects ``max_y < min_y``, so height goes negative."""
-    _, _, stage = overlay(tmp_path, native(tmp_path), min_y=400, max_y=319)
-    inst = chunks_of(stage, SOUTH)
-    assert np.array(box_of(stage, inst).GetPointsAttr().Get())[:, 1].min() == -80
-    lo, hi = inst.GetExtentAttr().Get()
-    assert (lo[1], hi[1]) == (400, 320)
+def test_inverted_y_range_is_rejected_before_writing(tmp_path):
+    """``max_y < min_y`` would give boxes a negative height and an invalid extent."""
+    with pytest.raises(ValueError, match=r"400\.\.319"):
+        overlay(tmp_path, native(tmp_path), min_y=400, max_y=319)
+    assert not (tmp_path / "out" / "overlays").exists()
 
 
 def test_faction_colour_is_on_the_xform_and_the_box(tmp_path):
