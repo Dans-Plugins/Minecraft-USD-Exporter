@@ -60,8 +60,14 @@ def claims_in_bbox(claims: list[Claim], bbox: BBox | None) -> list[Claim]:
 
 def write_claims_layer(out_dir: str | Path, data: ClaimsData, claims: list[Claim], *,
                        min_y: int, max_y: int, binary: bool = False) -> ClaimsStats:
-    """Write the claims overlay for ``claims`` (already filtered to one world)."""
-    path = Path(out_dir) / "overlays" / claims_filename(binary)
+    """Write the claims overlay for ``claims`` (already filtered to one world).
+
+    Raises :class:`ValueError` when ``max_y < min_y`` (the boxes would have a
+    negative height and an invalid ``extent``); nothing is written in that case.
+    """
+    if max_y < min_y:
+        raise ValueError(f"claim box Y range {min_y}..{max_y} is empty (max_y < min_y)")
+    path =Path(out_dir) / "overlays" / claims_filename(binary)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         path.unlink()

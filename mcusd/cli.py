@@ -9,7 +9,8 @@ Parses arguments, wires the pipeline, reports progress and a summary::
                   [--summary-json PATH] [--quiet]
 
 Exit status: 0 on success, 2 for invalid input (bad arguments, not a world,
-unreadable claims or overrides), 1 when the world data itself cannot be read.
+unreadable claims or overrides, a box outside the dimension's Y range, an
+output path that cannot be written), 1 when the world data itself cannot be read.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from mcusd import __version__
 from mcusd.blocks import BlockCatalogue
 from mcusd.cull import cull_region
 from mcusd.overlays.claims_input import ClaimsError, load_claims
-from mcusd.select import BBox, ChunkSource, iter_region_volumes
+from mcusd.select import BBox, ChunkSource, clamp_to_dimension, iter_region_volumes
 from mcusd.usd.claims import claims_in_bbox, write_claims_layer
 from mcusd.usd.stage import write_root_layer
 from mcusd.usd.terrain import TerrainWriter
@@ -83,6 +84,10 @@ def export_world(world: str | Path, *, bbox: BBox, out: str | Path, dimension: s
         location = locate(world, dimension)
     except WorldLayoutError as exc:
         raise InputError(str(exc)) from None
+    dim = location.dimension
+    if clamp_to_dimension(bbox, dim) is None:
+        raise InputError(f"--bbox Y range {bbox.y1}..{bbox.y2} lies outside the {dim.name} Y range "
+                         f"{dim.min_y}..{dim.max_y}; nothing would be exported")
     if out.resolve().is_relative_to(world.resolve()):
         raise InputError(f"--out must not be inside the world folder ({world}); the exporter never writes there")
     try:
@@ -99,7 +104,10 @@ def export_world(world: str | Path, *, bbox: BBox, out: str | Path, dimension: s
     elif world_uuid is not None:
         raise InputError("--world-uuid only applies together with --claims")
 
-    out.mkdir(parents=True, exist_ok=True)
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise InputError(f"--out {out}: cannot create the output directory ({exc.strerror})") from None
     source = ChunkSource(location.region_dir, location.dimension)
     terrain = TerrainWriter(out, catalogue, source.table, location.dimension)
     result = ExportResult(out, terrain.path, [], location.layout)
@@ -121,7 +129,6 @@ def export_world(world: str | Path, *, bbox: BBox, out: str | Path, dimension: s
     result.chunks_skipped_partial = source.chunks_skipped_partial
 
     if claims_data is not None:
-        dim = location.dimension
         stats = write_claims_layer(out, claims_data, selected_claims,
                                    min_y=max(bbox.y1, dim.min_y), max_y=min(bbox.y2, dim.max_y), binary=binary)
         result.overlays.append(stats.path)
@@ -198,6 +205,10 @@ def summary_dict(result: ExportResult) -> dict:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     say = (lambda message: None) if args.quiet else (lambda message: print(message, flush=True))
+    if args.summary_json and not args.summary_json.parent.is_dir():
+        print(f"mc-usd-export: error: --summary-json {args.summary_json}: directory "
+              f"{args.summary_json.parent} does not exist", file=sys.stderr)
+        return 2
     try:
         result = export_world(args.world, bbox=BBox.from_corners(*args.bbox), out=args.out,
                               dimension=args.dimension, claims=args.claims, world_uuid=args.world_uuid,
@@ -221,7 +232,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     for path in result.files():
         say(f"wrote {path} ({_size(path)})")
     if args.summary_json:
-        args.summary_json.write_text(json.dumps(summary_dict(result), indent=2) + "\n", encoding="utf-8")
+        try:
+            args.summary_json.write_text(json.dumps(summary_dict(result), indent=2) + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"mc-usd-export: error: --summary-json {args.summary_json}: cannot write the summary "
+                  f"({exc.strerror}); the stage in {result.root.parent} was written", file=sys.stderr)
+            return 2
     return 0
 
 

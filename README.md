@@ -57,7 +57,7 @@ mc-usd-export tests/fixtures/world-26.3 --bbox -16 -64 -16 15 319 15 \
 | Option | Meaning |
 |---|---|
 | `WORLD` | World folder (the one containing `level.dat`). Pre-26.1 (`region/`, `DIM-1/`, `DIM1/`) and 26.1+ (`dimensions/minecraft/<dimension>/`) layouts are both read. |
-| `--bbox X1 Y1 Z1 X2 Y2 Z2` | Inclusive block-space box; any two opposite corners. Y is clamped to the dimension. Required. |
+| `--bbox X1 Y1 Z1 X2 Y2 Z2` | Inclusive block-space box; any two opposite corners. Y is clamped to the dimension; a box wholly above or below the dimension is rejected with exit status `2`. Required. |
 | `--out DIR` | Output directory. Must not be inside the world folder. Required. |
 | `--dimension` | `overworld` (default), `the_nether` or `the_end` (also accepted with a `minecraft:` prefix). |
 | `--claims PATH` | Claims input: an `mcusd-claims` JSON file, a saved Medieval Factions `GET /api/claims` array, or a Medieval Factions JSON-storage directory (`claimed_chunks.json` + `factions.json`). See the [contract](ARCHITECTURE.md#claims-overlay-input-contract); [`examples/claims.json`](examples/claims.json) is a sample. Only claims overlapping the box are drawn. |
@@ -68,7 +68,7 @@ mc-usd-export tests/fixtures/world-26.3 --bbox -16 -64 -16 15 319 15 \
 | `-q`, `--quiet` | Print only errors and warnings. |
 | `--version` | Print the exporter version and exit. |
 
-Exit status: `0` on success, `2` for invalid input (bad arguments, not a world, unreadable claims or overrides), `1` when world data cannot be read (for example a corrupt region file or a chunk using unsupported custom compression). LZ4-compressed worlds need the `[lz4]` extra.
+Exit status: `0` on success, `2` for invalid input (bad arguments, not a world, unreadable claims or overrides, a box outside the dimension's Y range, an `--out` or `--summary-json` path that cannot be written), `1` when world data cannot be read (for example a corrupt region file or a chunk using unsupported custom compression). LZ4-compressed worlds need the `[lz4]` extra.
 
 Always export from a **copy** of a world folder or from a stopped server; the tool only reads, but reading files a running server is writing can give inconsistent results.
 

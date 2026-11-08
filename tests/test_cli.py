@@ -151,36 +151,45 @@ def test_claim_boxes_span_the_bbox_clamped_to_the_dimension(tmp_path, y1, y2, fl
     assert np.array(box.GetPointsAttr().Get()).max(axis=0).tolist() == [16, height, 16]
 
 
-def test_bbox_above_the_dimension_writes_inside_out_claim_boxes(tmp_path):
-    """Current behaviour, not endorsed: no terrain, yet claims get a negative height and exit is 0."""
+@pytest.mark.parametrize("y1, y2", [(400, 500), (-200, -100)])
+def test_bbox_outside_the_dimension_exits_2_and_writes_nothing(tmp_path, capsys, y1, y2):
+    """Above or below the overworld's -64..319: no terrain, so no claim boxes either."""
     claims = write_claims(tmp_path, ["00000000-0000-4000-8000-000000000001"])
     out, summary = tmp_path / "out", tmp_path / "summary.json"
-    code = main([str(WORLD), "--bbox", "-16", "400", "-16", "15", "500", "15", "--out", str(out), "-q",
+    code = main([str(WORLD), "--bbox", "-16", str(y1), "-16", "15", str(y2), "15", "--out", str(out), "-q",
                  "--claims", str(claims), "--summary-json", str(summary)])
-    assert code == 0
-    data = json.loads(summary.read_text())
-    assert (data["instances"], data["claims"]) == (0, 1)
-    _stage, inst, box = claim_box(out)
-    assert np.array(box.GetPointsAttr().Get())[:, 1].min() == -80
-    lo, hi = inst.GetExtentAttr().Get()
-    assert (lo[1], hi[1]) == (400, 320)
+    err = capsys.readouterr().err
+    assert code == 2
+    assert f"{y1}..{y2}" in err and "overworld Y range -64..319" in err
+    assert not out.exists() and not summary.exists()
 
 
-def test_out_naming_a_file_escapes_as_an_exception(tmp_path):
-    """Current behaviour, not endorsed: the OSError is not turned into exit status 2."""
+def test_out_naming_a_file_exits_2_naming_the_path(tmp_path, capsys):
     out = tmp_path / "out"
     out.write_text("keep me")
-    with pytest.raises(FileExistsError):
-        main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q"])
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q"])
+    assert code == 2
+    assert f"--out {out}" in capsys.readouterr().err
     assert out.read_text() == "keep me"
 
 
-def test_summary_json_in_a_missing_directory_escapes_after_the_export(tmp_path):
-    """Current behaviour, not endorsed: the stage is complete, but the OSError is not reported."""
-    out = tmp_path / "out"
-    with pytest.raises(FileNotFoundError):
-        main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q",
-              "--summary-json", str(tmp_path / "missing" / "summary.json")])
+def test_summary_json_in_a_missing_directory_exits_2_before_the_export(tmp_path, capsys):
+    out, missing = tmp_path / "out", tmp_path / "missing"
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q",
+                 "--summary-json", str(missing / "summary.json")])
+    assert code == 2
+    assert f"directory {missing} does not exist" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_summary_json_write_failure_exits_2_after_the_export(tmp_path, capsys):
+    """A summary path that is a directory passes the up-front check but cannot be written."""
+    out, summary = tmp_path / "out", tmp_path / "summary.json"
+    summary.mkdir()
+    code = main([str(WORLD), "--bbox", *SLAB, "--out", str(out), "-q", "--summary-json", str(summary)])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert f"--summary-json {summary}: cannot write the summary" in err and f"stage in {out} was written" in err
     assert (out / "world.usda").is_file()
 
 
