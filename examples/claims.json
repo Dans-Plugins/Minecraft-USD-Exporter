@@ -1,6 +1,7 @@
 {
   "format": "mcusd-claims",
   "version": 1,
+  "source": "example data",
   "factions": [
     { "id": "6f1c2a9e-3b7d-4e58-9a0c-1d2e3f405162", "name": "Northreach", "color": "#3366cc" },
     { "id": "b2d4f6a8-0c1e-4325-8769-abcdef012345", "name": "Saltmarsh", "color": "#cc6633" }

@@ -1,6 +1,7 @@
 {
   "format": "mcusd-claims",
   "version": 1,
+  "source": "example data",
   "factions": [
     {"id": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e01", "name": "Northwatch", "color": "#d93a3a"},
     {"id": "2f9a6c1e-8b3d-4c52-9e07-5a1b2c3d4e02", "name": "Saltmarsh", "color": "#f2b31b"},

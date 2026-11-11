@@ -136,6 +136,29 @@ def read_claims(stage) -> list[Faction]:
     return factions
 
 
+# Legend headings per claims input kind, when the input does not name its own source.
+SOURCE_HEADINGS = {
+    "mf-json-storage": "Claims (Medieval Factions storage)",
+    "api-array": "Claims (Medieval Factions API)",
+}
+
+
+def legend_heading(stage) -> str:
+    """The legend heading for the stage's claims, from the provenance the exporter wrote.
+
+    A native claims file that names its source (``"source": "example data"``) is
+    headed with it; Medieval Factions' own data is headed by where it was read
+    from; anything else, including a stage exported before provenance was
+    recorded, is headed plainly "Claims"."""
+    root = stage.GetPrimAtPath(CLAIMS_PREFIX)
+    if not root:
+        return "Claims"
+    label = root.GetCustomDataByKey("mcusd:claimsSourceLabel")
+    if label:
+        return f"Claims ({label})"
+    return SOURCE_HEADINGS.get(root.GetCustomDataByKey("mcusd:claimsSource"), "Claims")
+
+
 def chunk_owner(factions: list[Faction]) -> dict[tuple[int, int], int]:
     return {c: i for i, f in enumerate(factions) for c in f.chunks}
 
@@ -721,7 +744,8 @@ def _font(path: str, size: int):
         return ImageFont.load_default(size)
 
 
-def annotate(rgba: np.ndarray, factions: list[Faction], caption: str, scale: float = 1.0):
+def annotate(rgba: np.ndarray, factions: list[Faction], caption: str, scale: float = 1.0,
+             heading: str = "Claims"):
     """The rendered frame as a Pillow image with a faction legend (top left) and a
     caption strip (bottom), as scripts/compose_preview.py does for the Blender images."""
     from PIL import Image, ImageDraw
@@ -731,7 +755,6 @@ def annotate(rgba: np.ndarray, factions: list[Faction], caption: str, scale: flo
     s = lambda v: max(1, int(round(v * scale)))  # noqa: E731
     if factions:
         f, hf = _font(FONT, s(15)), _font(FONT_BOLD, s(12))
-        heading = "Claims (example data)"
         row = s(22)
         width = s(20) + max([s(28) + int(draw.textlength(x.name, font=f)) for x in factions]
                             + [int(draw.textlength(heading, font=hf))])
@@ -773,6 +796,7 @@ def render(args) -> dict:
     stage = open_stage(Path(args.stage))
     strata = Strata(resolve_library(args.strata, read_lock()))  # fail fast, before the slow part
     factions = [] if args.no_claims else read_claims(stage)
+    heading = args.legend_heading or legend_heading(stage)
     if args.claim_columns and not strata.has_translucent_meshes:
         raise PreviewError(f"--claim-columns needs Strata ABI 1.{COLUMNS_ABI_MINOR} (translucent meshes); "
                            f"this library is {strata.lib.abi_version}.{strata.lib.abi_minor}", EXIT_STRATA)
@@ -831,7 +855,7 @@ def render(args) -> dict:
                 stamp = dt.datetime.fromtimestamp(u, dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
                 el = strata.solar(u, args.lat, args.lon).elevation_degrees
                 caption = args.caption or f"Strata {strata.version}, {mode}; sun at {stamp}, {where} ({el:.0f} deg up)"
-                images.append(annotate(px, scene.factions if not args.no_legend else [], caption, w / 960))
+                images.append(annotate(px, scene.factions if not args.no_legend else [], caption, w / 960, heading))
             scene.stats["coverage"] = round(cov, 3)
             write_gif(images, out, args.gif_width, args.gif_ms,
                       [] if args.no_legend else [f.color for f in scene.factions])
@@ -844,7 +868,7 @@ def render(args) -> dict:
                 raise PreviewError(f"the preview is blank: only {cov:.2%} of pixels differ from an empty frame")
             stamp = dt.datetime.fromtimestamp(unix, dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             caption = args.caption or f"Strata {strata.version}, {mode}; sun at {stamp}, {where}"
-            img = annotate(px, scene.factions if not args.no_legend else [], caption, w / 960)
+            img = annotate(px, scene.factions if not args.no_legend else [], caption, w / 960, heading)
             out.parent.mkdir(parents=True, exist_ok=True)
             img.save(out, optimize=True)
         scene.stats.update(strata=strata.version, gpu=strata.gpu, s_frames=frame_times,
@@ -894,6 +918,8 @@ def parse_args(argv=None):
                    help="also draw the overlay's translucent claim boxes, as the composed stage holds them "
                         "(Strata ABI 1.11)")
     p.add_argument("--no-legend", action="store_true")
+    p.add_argument("--legend-heading",
+                   help="replace the legend heading (default: from the claims source the exporter recorded)")
     p.add_argument("--caption", help="replace the generated caption")
     p.add_argument("--sequence", type=int, default=0, metavar="N",
                    help="N frames from sunrise to sunset on --sun's date, written as a GIF")

@@ -1,7 +1,10 @@
 """Claims writer.
 
 Writes the Medieval Factions claims overlay layer: ``overlays/claims.usda``
-(``overlays/claims.usdc`` with ``--binary``) defining ``/World/Overlays/Claims``.
+(``overlays/claims.usdc`` with ``--binary``) defining ``/World/Overlays/Claims``,
+whose ``customData`` records where the claims came from (``mcusd:claimsSource``:
+``native``, ``api-array`` or ``mf-json-storage``; ``mcusd:claimsSourceLabel``: a
+native document's optional ``source`` text).
 Per faction there is one ``Xform`` (faction name and ID in ``customData``,
 ``primvars:displayColor`` = faction colour) holding a ``Chunks`` PointInstancer
 whose single prototype is a translucent 16 × H × 16 box (``displayOpacity``
@@ -77,7 +80,10 @@ def write_claims_layer(out_dir: str | Path, data: ClaimsData, claims: list[Claim
     world = UsdGeom.Xform.Define(stage, WORLD)
     stage.SetDefaultPrim(world.GetPrim())
     UsdGeom.Scope.Define(stage, OVERLAYS)
-    UsdGeom.Xform.Define(stage, CLAIMS)
+    claims_root = UsdGeom.Xform.Define(stage, CLAIMS).GetPrim()
+    claims_root.SetCustomDataByKey("mcusd:claimsSource", data.source_kind)
+    if data.source_label:
+        claims_root.SetCustomDataByKey("mcusd:claimsSourceLabel", data.source_label)
     height = max_y - min_y + 1
     stats = ClaimsStats(path)
 

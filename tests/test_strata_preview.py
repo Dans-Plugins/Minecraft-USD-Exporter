@@ -295,3 +295,60 @@ def test_unloadable_strata_exits_3_before_reading_terrain(tmp_path, capsys, monk
     stage.write_text("#usda 1.0\n")
     assert rsp.main([str(stage), str(tmp_path / "out.png"), "--strata", str(fake)]) == rsp.EXIT_STRATA
     assert "cannot load" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ legend heading
+
+
+def export_with(tmp_path, claims) -> Usd.Stage:
+    out = tmp_path / "out"
+    assert export_main([str(ROOT / "tests/fixtures/world-26.3"),
+                        "--bbox", "-16", "-64", "-16", "15", "319", "15", "--claims", str(claims),
+                        "--out", str(out), "--quiet"]) == 0
+    return Usd.Stage.Open(str(out / "world.usda"))
+
+
+def test_legend_heading_says_example_data_only_for_the_examples(tmp_path):
+    assert rsp.legend_heading(export_with(tmp_path, ROOT / "examples/claims.json")) == "Claims (example data)"
+
+
+def test_legend_heading_names_medieval_factions_storage_for_real_server_data(tmp_path):
+    example = json.loads((ROOT / "examples/claims.json").read_text())
+    store = tmp_path / "medieval_factions_data"
+    store.mkdir()
+    (store / "claimed_chunks.json").write_text(json.dumps({"claims": example["claims"]}))
+    (store / "factions.json").write_text(json.dumps({"factions": [
+        {"id": f["id"], "name": f["name"], "flags": {"color": f["color"]}} for f in example["factions"]]}))
+    stage = export_with(tmp_path, store)
+    assert rsp.read_claims(stage)  # the claims are drawn ...
+    assert rsp.legend_heading(stage) == "Claims (Medieval Factions storage)"  # ... and not called examples
+
+
+def test_legend_heading_names_the_api_for_a_saved_claims_array(tmp_path):
+    example = json.loads((ROOT / "examples/claims.json").read_text())
+    saved = tmp_path / "api-claims.json"
+    saved.write_text(json.dumps(example["claims"]))
+    assert rsp.legend_heading(export_with(tmp_path, saved)) == "Claims (Medieval Factions API)"
+
+
+def test_legend_heading_is_plain_for_an_unlabelled_native_file(tmp_path):
+    example = json.loads((ROOT / "examples/claims.json").read_text())
+    del example["source"]
+    unlabelled = tmp_path / "claims.json"
+    unlabelled.write_text(json.dumps(example))
+    assert rsp.legend_heading(export_with(tmp_path, unlabelled)) == "Claims"
+
+
+def test_legend_heading_is_plain_for_a_stage_without_provenance():
+    from pxr import UsdGeom
+
+    stage = Usd.Stage.CreateInMemory()  # as an exporter older than the provenance keys wrote it
+    UsdGeom.Xform.Define(stage, rsp.CLAIMS_PREFIX)
+    assert rsp.legend_heading(stage) == "Claims"
+    assert rsp.legend_heading(Usd.Stage.CreateInMemory()) == "Claims"
+
+
+def test_legend_heading_flag_overrides_the_recorded_source():
+    assert rsp.parse_args(["w.usda", "o.png", "--legend-heading", "Claims (test server)"]).legend_heading \
+        == "Claims (test server)"
+    assert rsp.parse_args(["w.usda", "o.png"]).legend_heading is None
