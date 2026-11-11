@@ -412,3 +412,29 @@ def test_claims_in_bbox_is_inclusive_and_ignores_y(chunk, bbox, touched):
 )
 def test_faction_prim_name_escapes_each_byte(faction_id, name):
     assert faction_prim_name(faction_id) == name
+
+
+def test_native_source_label_is_read_and_recorded_on_the_overlay(tmp_path):
+    data, stats, stage = overlay(tmp_path, EXAMPLE)
+    assert data.source_label == "example data"
+    root = stage.GetPrimAtPath("/World/Overlays/Claims")
+    assert root.GetCustomDataByKey("mcusd:claimsSource") == "native"
+    assert root.GetCustomDataByKey("mcusd:claimsSourceLabel") == "example data"
+
+
+def test_mf_storage_overlay_records_its_kind_and_no_label(tmp_path):
+    store = tmp_path / "mf"
+    store.mkdir()
+    write_json(store / "claimed_chunks.json", {"claims": CLAIMS})
+    data, stats, stage = overlay(tmp_path, store)
+    assert data.source_label is None
+    root = stage.GetPrimAtPath("/World/Overlays/Claims")
+    assert root.GetCustomDataByKey("mcusd:claimsSource") == "mf-json-storage"
+    assert root.GetCustomDataByKey("mcusd:claimsSourceLabel") is None
+
+
+@pytest.mark.parametrize("bad", ["", "   ", 7, ["x"]])
+def test_native_source_must_be_a_non_empty_string(tmp_path, bad):
+    doc = {"format": "mcusd-claims", "version": 1, "source": bad, "claims": CLAIMS}
+    with pytest.raises(ClaimsError, match="'source'"):
+        load_claims(write_json(tmp_path / "claims.json", doc))

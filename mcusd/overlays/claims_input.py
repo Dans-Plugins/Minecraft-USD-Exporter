@@ -59,6 +59,7 @@ class ClaimsData:
     factions: dict[str, Faction]
     source_kind: str  # "native", "api-array" or "mf-json-storage"
     warnings: list[str] = field(default_factory=list)
+    source_label: str | None = None  # a native document's optional "source", e.g. "example data"
 
     def world_ids(self) -> list[str]:
         return sorted({c.world_id for c in self.claims})
@@ -137,7 +138,12 @@ def _from_native(data: dict, where: str) -> ClaimsData:
     factions = None
     if "factions" in data:
         factions = [_native_faction(f, i, where) for i, f in enumerate(_list(data["factions"], "factions", where))]
-    return _normalise(data["claims"], factions, "native", where)
+    label = data.get("source")
+    if label is not None and (not isinstance(label, str) or not label.strip()):
+        raise ClaimsError(f"{where}: 'source' must be a non-empty string")
+    result = _normalise(data["claims"], factions, "native", where)
+    result.source_label = label.strip() if label is not None else None
+    return result
 
 
 def _from_mf_directory(directory: Path) -> ClaimsData:
