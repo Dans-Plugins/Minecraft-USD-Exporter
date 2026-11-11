@@ -210,12 +210,14 @@ The exporter accepts one documented file, `claims.json`, whose `claims` entries 
 
 | Field | Required | Notes |
 |---|---|---|
-| `format`, `version` | yes | Reject unknown formats; reject `version` > supported. |
+| `format`, `version` | yes | Reject any `format` other than `mcusd-claims`; `version` must be an integer from 1 up to the supported version (currently 1). |
 | `claims[].worldId` | yes | UUID string. Filtered against `--world-uuid`. |
 | `claims[].x`, `claims[].z` | yes | **Chunk** coordinates (block = chunk × 16). |
-| `claims[].factionId` | yes | String; must match a `factions[].id` or is drawn with a fallback colour and a warning. |
+| `claims[].factionId` | yes | String. When `factions` is given, an ID not listed there is drawn with a colour derived from the ID and a warning. |
 | `factions` | no | Optional; without it, names default to the ID and colours are derived deterministically from the ID. |
-| `factions[].color` | no | `#rrggbb`. |
+| `factions[].id` | yes, per faction | String; the ID that `claims[].factionId` refers to. |
+| `factions[].name` | no | String; defaults to the ID. |
+| `factions[].color` | no | `#rrggbb`; without it, the colour is derived from the ID. |
 
 Accepted inputs (all normalised to the contract above by `claims_input.py`):
 
