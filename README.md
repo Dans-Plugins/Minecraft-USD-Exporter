@@ -182,6 +182,18 @@ The Strata library is the release pinned in [`mcusd/strata.lock.json`](mcusd/str
 mc-usd-thumbnail out/world.usda thumb/
 ```
 
+#### On the committed fixture world
+
+![A small forested patch of a Minecraft 26.3 world with a pond, turning once on the spot as the camera circles it; no claims are drawn](docs/images/fixture-turntable.webp)
+
+*`mc-usd-thumbnail` on an export of the committed `tests/fixtures/world-26.3` (4 chunks, full height): 24 frames at 400 × 264, 160 ms each, otherwise the defaults, so no claims are drawn. 154 KB animated WebP; the poster still is [`fixture-turntable-poster.png`](docs/images/fixture-turntable-poster.png). The camera framing is `mc-usd-preview`'s, which on an area this small clips the nearest corner in some frames.*
+
+![The same fixture export from mc-usd-preview's fixed direction, with the two example factions' chunks tinted and outlined, under a legend headed "Claims (example data)"](docs/images/fixture-claims-legend.png)
+
+*`mc-usd-preview` with its defaults on the same export with [`examples/claims.json`](examples/claims.json). The legend heading comes from the claims file's `source` field (`"example data"`), as recorded in the stage by the exporter.*
+
+Both are regenerated from a checkout with `scripts/make_readme_turntable.sh` (it needs the preview dependencies above).
+
 The images above were made from the [preview image](#preview-image) export (`--bbox -128 44 -128 31 120 31` with `examples/claims-showcase.json`) with the last four commands applied to that export. CI renders the fixture worlds the same way on every pull request (the **Strata previews** job; images in the `strata-previews` artifact).
 
 ### Documentation
