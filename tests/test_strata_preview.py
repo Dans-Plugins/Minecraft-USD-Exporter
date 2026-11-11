@@ -1,4 +1,4 @@
-"""The pure-Python parts of scripts/render_strata_preview.py (headless Strata previews).
+"""The pure-Python parts of mcusd.preview (headless Strata previews).
 
 Nothing here loads Strata, usd-web or Pillow: meshing, claim tint and borders, the
 pinned-library checks, the blank-image check and the framing are tested on their
@@ -6,10 +6,8 @@ own. The CI job "Strata previews" renders real images.
 """
 
 import hashlib
-import importlib.util
 import json
 import math
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -18,11 +16,9 @@ from pxr import Usd
 
 from mcusd.cli import main as export_main
 
+import mcusd.preview as rsp
+
 ROOT = Path(__file__).resolve().parent.parent
-SPEC = importlib.util.spec_from_file_location("render_strata_preview", ROOT / "scripts" / "render_strata_preview.py")
-rsp = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = rsp  # dataclasses look their module up
-SPEC.loader.exec_module(rsp)
 
 HOLE = np.iinfo(np.int32).min
 

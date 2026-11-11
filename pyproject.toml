@@ -30,6 +30,8 @@ dev = ["pytest==9.1.1"]
 
 [project.scripts]
 mc-usd-export = "mcusd.cli:main"
+mc-usd-preview = "mcusd.preview:main"
+mc-usd-thumbnail = "mcusd.turntable:main"
 
 [project.urls]
 Homepage = "https://github.com/Dans-Plugins/Minecraft-USD-Exporter"
@@ -37,6 +39,9 @@ Issues = "https://github.com/Dans-Plugins/Minecraft-USD-Exporter/issues"
 
 [tool.setuptools.packages.find]
 include = ["mcusd*"]
+
+[tool.setuptools.package-data]
+mcusd = ["strata.lock.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

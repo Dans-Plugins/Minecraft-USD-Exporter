@@ -2,9 +2,13 @@
 
 Run with the project's own Python (not inside Blender)::
 
-    python scripts/render_strata_preview.py out/world.usda preview.png
-    python scripts/render_strata_preview.py out/world.usda full.png --full
-    python scripts/render_strata_preview.py out/world.usda day.gif --sequence 24
+    mc-usd-preview out/world.usda preview.png
+    mc-usd-preview out/world.usda full.png --full
+    mc-usd-preview out/world.usda day.gif --sequence 24
+
+(``python -m mcusd.preview`` is the same command.) The module is part of the
+installed package, so other programs can import its scene and camera code; the
+turntable thumbnail in ``mcusd.turntable`` is one such caller.
 
 ``STAGE`` is a layer the exporter wrote, normally ``world.usda``. The preview reads
 that USD output, not the exporter's in-memory arrays, so it shows what a user opens.
@@ -30,7 +34,7 @@ Strata is reached through its official Python binding (``strata-engine``,
 ``ctypes`` over the C ABI), which checks the ABI major version and every struct
 layout against the library at load; the terrain goes to Strata straight from
 NumPy arrays. The library is the release pinned in
-``scripts/strata.lock.json``: pass ``--strata PATH`` (or set ``MCUSD_STRATA_LIB``),
+``mcusd/strata.lock.json`` (shipped with the package): pass ``--strata PATH`` (or set ``MCUSD_STRATA_LIB``),
 or the script downloads the pinned asset into a per-user cache, verifies its
 SHA-256 and deletes it on a mismatch. Headless rendering needs ``libEGL.so.1`` and
 a Mesa driver; without a GPU use ``LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe``.
@@ -62,8 +66,7 @@ from pathlib import Path
 
 import numpy as np
 
-HERE = Path(__file__).resolve().parent
-LOCK = HERE / "strata.lock.json"
+LOCK = Path(__file__).resolve().with_name("strata.lock.json")
 TERRAIN_PREFIX = "/World/Terrain"
 CLAIMS_PREFIX = "/World/Overlays/Claims"
 CHUNK = 16
@@ -940,7 +943,7 @@ def main(argv=None) -> int:
     try:
         stats = render(args)
     except PreviewError as exc:
-        print(f"render_strata_preview: {exc}", file=sys.stderr)
+        print(f"mc-usd-preview: {exc}", file=sys.stderr)
         return exc.code
     stats["s_total"] = round(time.perf_counter() - t, 3)
     text = json.dumps(stats, indent=1)
