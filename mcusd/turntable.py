@@ -105,10 +105,10 @@ def write_turntable(frames: list[np.ndarray], out_dir: Path, *, ms: int = DEFAUL
     """Write ``thumb.webp`` (animated, loops) and ``poster.png`` (frame 0) into
     ``out_dir``. Each file is written under a temporary name and renamed, so a
     reader never sees half a picture. Returns the byte size of each file."""
-    from PIL import Image
-
     if not frames:
         raise ValueError("no frames")
+    from PIL import Image
+
     out_dir.mkdir(parents=True, exist_ok=True)
     images = [Image.fromarray(np.ascontiguousarray(f[:, :, :3])) for f in frames]
     sizes = {}
