@@ -43,7 +43,7 @@ jobs:
     env:
       # usd-web has no PyPI release: a full commit SHA on its main branch (0.2.2.dev0).
       USD_WEB_SHA: 03f1cd518b01276da2ecc73435ab2e821c5fba89
-      # strata-engine has no PyPI release: the tag of the library in scripts/strata.lock.json.
+      # strata-engine has no PyPI release: the tag of the library in mcusd/strata.lock.json.
       STRATA_BINDING_TAG: v0.6.0
       LIBGL_ALWAYS_SOFTWARE: "1"
       GALLIUM_DRIVER: llvmpipe
@@ -64,20 +64,27 @@ jobs:
             mc-usd-export "tests/fixtures/world-$version" --bbox -16 -64 -16 15 319 15 \
               --claims examples/claims.json --out "$RUNNER_TEMP/usd-out/$version" --quiet
           done
-      - name: Render (Strata release pinned in scripts/strata.lock.json, SHA-256 checked)
+      - name: Render (Strata release pinned in mcusd/strata.lock.json, SHA-256 checked)
         run: |
           mkdir -p previews
           for version in 1.21.11 26.3; do
             stage="$RUNNER_TEMP/usd-out/$version/world.usda"
-            python scripts/render_strata_preview.py "$stage" "previews/$version-top.png" \
+            mc-usd-preview "$stage" "previews/$version-top.png" \
               --stats-json "previews/$version-top.json"
-            python scripts/render_strata_preview.py "$stage" "previews/$version-full.png" --full \
+            mc-usd-preview "$stage" "previews/$version-full.png" --full \
               --stats-json "previews/$version-full.json"
           done
-          python scripts/render_strata_preview.py "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-columns.png \
+          mc-usd-preview "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-columns.png \
             --claim-columns --stats-json previews/26.3-columns.json
-          python scripts/render_strata_preview.py "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-day.gif \
+          mc-usd-preview "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-day.gif \
             --sequence 8 --stats-json previews/26.3-day.json
+      - name: Render a turntable thumbnail (mc-usd-thumbnail, no claims)
+        env:
+          LP_NUM_THREADS: "1"
+        run: |
+          mc-usd-thumbnail "$RUNNER_TEMP/usd-out/26.3/world.usda" previews/26.3-thumbnail \
+            --stats-json previews/26.3-thumbnail/stats.json
+          test -s previews/26.3-thumbnail/thumb.webp && test -s previews/26.3-thumbnail/poster.png
       - name: Summary
         if: always()
         run: |
@@ -89,6 +96,9 @@ jobs:
             for f in previews/*.json; do
               python -c "import json,sys; s=json.load(open(sys.argv[1])); print(f\"| {sys.argv[1].split('/')[-1][:-5]} | {s['s_frames']} | {s['s_total']} | {s['coverage']:.0%} |\")" "$f"
             done
+            if [ -f previews/26.3-thumbnail/stats.json ]; then
+              python -c "import json; s=json.load(open('previews/26.3-thumbnail/stats.json')); print(); print(f\"Thumbnail: {s['frames']} frames, {s['bytes']['thumb.webp']} B WebP + {s['bytes']['poster.png']} B poster, {s['s_total']} s\")"
+            fi
             echo
             echo "GPU: $(python -c "import json,glob; print(json.load(open(sorted(glob.glob('previews/*.json'))[0]))['gpu'])" 2>/dev/null)"
           } >> "$GITHUB_STEP_SUMMARY"
