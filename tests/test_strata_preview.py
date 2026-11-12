@@ -348,3 +348,98 @@ def test_legend_heading_flag_overrides_the_recorded_source():
     assert rsp.parse_args(["w.usda", "o.png", "--legend-heading", "Claims (test server)"]).legend_heading \
         == "Claims (test server)"
     assert rsp.parse_args(["w.usda", "o.png"]).legend_heading is None
+
+
+# ------------------------------------------------------------------ helpers (characterization)
+
+
+def test_hex_to_rgb_reads_two_digits_per_channel_with_or_without_a_hash():
+    assert rsp.hex_to_rgb("#ff8000") == (1.0, 128 / 255, 0.0)
+    assert rsp.hex_to_rgb("ff8000") == rsp.hex_to_rgb("#ff8000")
+    assert rsp.hex_to_rgb("#FFFFFF") == (1.0, 1.0, 1.0)
+
+
+def test_display_color_passes_colours_through_unchanged_as_float64():
+    out = rsp.display_color([(0.25, 0.5, 1.0)])
+    assert out.dtype == np.float64 and out.tolist() == [[0.25, 0.5, 1.0]]
+
+
+def test_chunk_owner_maps_each_chunk_to_its_faction_index_and_the_later_faction_wins_a_shared_chunk():
+    assert rsp.chunk_owner(factions()) == {(0, 0): 0, (1, 0): 0, (0, 1): 1}
+    overlap = factions() + [rsp.Faction("East", (0.0, 1.0, 0.0), {(1, 0)})]
+    assert rsp.chunk_owner(overlap)[(1, 0)] == 2
+    assert rsp.chunk_owner([]) == {}
+
+
+def test_polyline_segments_pair_neighbours_and_break_at_gaps():
+    a, b, c, d = (0, 1, 0), (1, 1, 0), (3, 1, 0), (4, 1, 0)
+    assert rsp.polyline_segments([a, b, None, c, d]) == [(a, b), (c, d)]
+    assert rsp.polyline_segments([a]) == []
+    assert rsp.polyline_segments([]) == []
+
+
+def test_terrain_only_keeps_terrain_prims_but_not_thin_plants_or_overlays():
+    from pxr import UsdGeom
+
+    stage = Usd.Stage.CreateInMemory()
+    stone = UsdGeom.Xform.Define(stage, rsp.TERRAIN_PREFIX + "/stone").GetPrim()
+    grass = UsdGeom.Xform.Define(stage, rsp.TERRAIN_PREFIX + "/short_grass").GetPrim()
+    tall = UsdGeom.Xform.Define(stage, rsp.TERRAIN_PREFIX + "/tall_grass").GetPrim()
+    claim = UsdGeom.Xform.Define(stage, rsp.CLAIMS_PREFIX + "/north").GetPrim()
+    assert rsp.terrain_only(stone)
+    assert not rsp.terrain_only(grass) and not rsp.terrain_only(tall)
+    assert not rsp.terrain_only(claim)
+
+
+def test_surface_heights_index_the_grid_from_its_origin_and_return_none_for_holes_and_outside():
+    from types import SimpleNamespace
+
+    heights = np.array([[70, 71, 72],
+                        [80, HOLE, 82]], dtype=np.int64)  # [z, x]
+    height_at = rsp.surface_heights(SimpleNamespace(origin=(-16, 32), heights=heights), HOLE)
+    assert height_at(-16, 32) == 70.0 and isinstance(height_at(-16, 32), float)
+    assert height_at(-14, 32) == 72.0
+    assert height_at(-16, 33) == 80.0
+    assert height_at(-15, 33) is None  # a hole
+    assert height_at(-17, 32) is None and height_at(-16, 31) is None  # before the origin
+    assert height_at(-13, 32) is None and height_at(-16, 34) is None  # past the far edge
+
+
+def test_read_lock_rejects_a_missing_or_empty_field_as_an_input_error(tmp_path):
+    good = rsp.read_lock()
+    for key in ("version", "asset", "url", "sha256"):
+        for broken in ({k: v for k, v in good.items() if k != key}, dict(good, **{key: ""})):
+            path = tmp_path / "strata.lock.json"
+            path.write_text(json.dumps(broken), encoding="utf-8")
+            with pytest.raises(rsp.PreviewError) as err:
+                rsp.read_lock(path)
+            assert err.value.code == rsp.EXIT_INPUT and f"missing {key}" in str(err.value)
+
+
+def test_cache_dir_follows_xdg_cache_home_else_the_home_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    assert rsp.cache_dir() == tmp_path / "xdg" / "mcusd" / "strata"
+    monkeypatch.setenv("XDG_CACHE_HOME", "")  # empty counts as unset
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert rsp.cache_dir() == tmp_path / "home" / ".cache" / "mcusd" / "strata"
+
+
+def test_open_stage_reports_an_unreadable_layer_as_an_input_error(tmp_path):
+    bad = tmp_path / "broken.usda"
+    bad.write_text("this is not a USD layer\n", encoding="utf-8")
+    with pytest.raises(rsp.PreviewError) as err:
+        rsp.open_stage(bad)
+    assert err.value.code == rsp.EXIT_INPUT and "cannot open" in str(err.value)
+    with pytest.raises(rsp.PreviewError) as err:
+        rsp.open_stage(tmp_path)  # a directory is not a stage file
+    assert err.value.code == rsp.EXIT_INPUT and "no such stage" in str(err.value)
+
+
+def test_args_default_to_a_fixed_960_by_540_frame_and_accept_a_sequence_for_an_upper_case_gif():
+    args = rsp.parse_args(["w.usda", "o.png"])
+    assert args.size == [960, 540] and (args.azimuth, args.elevation, args.fov) == (135.0, 38.0, 40.0)
+    assert args.sun == rsp.DEFAULT_SUN and (args.lat, args.lon) == (rsp.DEFAULT_LAT, rsp.DEFAULT_LON)
+    assert (args.sequence, args.gif_width, args.gif_ms, args.min_coverage) == (0, 640, 160, 0.02)
+    assert rsp.parse_args(["w.usda", "DAY.GIF", "--sequence", "4"]).sequence == 4
+    with pytest.raises(SystemExit):
+        rsp.parse_args(["w.usda", "day.gif", "--sequence", "-1"])
