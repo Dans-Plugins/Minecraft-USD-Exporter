@@ -438,3 +438,152 @@ def test_native_source_must_be_a_non_empty_string(tmp_path, bad):
     doc = {"format": "mcusd-claims", "version": 1, "source": bad, "claims": CLAIMS}
     with pytest.raises(ClaimsError, match="'source'"):
         load_claims(write_json(tmp_path / "claims.json", doc))
+
+
+# Characterization of the claims reader's remaining untested branches.
+
+
+def mf_store(tmp_path, factions, claims=CLAIMS):
+    directory = tmp_path / "medieval_factions_data"
+    directory.mkdir()
+    write_json(directory / "claimed_chunks.json", {"claims": claims})
+    write_json(directory / "factions.json", {"factions": factions})
+    return directory
+
+
+@pytest.mark.parametrize("flags", [None, ["not", "a", "dict"], "red"])
+def test_mf_faction_flags_that_are_not_an_object_give_a_derived_colour(tmp_path, flags):
+    entry = {"id": NORTH, "name": "Northreach"}
+    if flags is not None:
+        entry["flags"] = flags
+    north = load_claims(mf_store(tmp_path, [entry])).faction(NORTH)
+    assert (north.name, north.color, north.color_from_input) == ("Northreach", hashed_color(NORTH), False)
+
+
+def test_mf_faction_name_that_is_not_a_string_falls_back_to_the_id(tmp_path):
+    entry = {"id": NORTH, "name": 5, "flags": {"color": "#3366cc"}}
+    north = load_claims(mf_store(tmp_path, [entry])).faction(NORTH)
+    assert (north.name, north.color, north.color_from_input) == (NORTH, parse_color("#3366cc"), True)
+
+
+@pytest.mark.parametrize("color", ["blue", 123, {"value": 7}])
+def test_mf_faction_bad_colour_names_the_factions_file_and_index(tmp_path, color):
+    entries = [{"id": SOUTH}, {"id": NORTH, "flags": {"color": color}}]
+    directory = mf_store(tmp_path, entries)
+    with pytest.raises(ClaimsError, match="rrggbb") as excinfo:
+        load_claims(directory)
+    assert f"{directory / 'factions.json'}: factions[1]" in str(excinfo.value)
+
+
+def test_mf_factions_file_with_invalid_json_names_that_file(tmp_path):
+    directory = mf_directory(tmp_path)
+    (directory / "factions.json").write_text("{nope")
+    with pytest.raises(ClaimsError, match="invalid JSON") as excinfo:
+        load_claims(directory)
+    assert str(directory / "factions.json") in str(excinfo.value)
+
+
+def test_mf_claims_that_are_not_a_list_are_rejected(tmp_path):
+    directory = tmp_path / "medieval_factions_data"
+    directory.mkdir()
+    write_json(directory / "claimed_chunks.json", {"claims": "nope"})
+    with pytest.raises(ClaimsError, match="'claims' must be a list"):
+        load_claims(directory)
+
+
+def test_mf_directory_without_factions_file_has_only_the_not_found_warning(tmp_path):
+    directory = mf_directory(tmp_path, with_factions=False)
+    data = load_claims(directory)
+    assert data.warnings == [
+        f"{directory / 'factions.json'} not found; faction names and colours are derived from IDs"
+    ]
+
+
+def test_mf_directory_with_factions_warns_about_unknown_faction_ids(tmp_path):
+    claims = CLAIMS + [{"worldId": WORLD, "x": 0, "z": 0, "factionId": "ghost"}]
+    data = load_claims(mf_store(tmp_path, [{"id": NORTH}, {"id": SOUTH}], claims=claims))
+    assert data.warnings == ["claims reference unknown faction 'ghost'; drawn with a fallback colour"]
+
+
+def test_unknown_faction_warnings_are_sorted_and_given_once_per_id(tmp_path):
+    claims = [
+        {"worldId": WORLD, "x": x, "z": 0, "factionId": faction_id}
+        for faction_id in ("zeta", "alpha") for x in (0, 1)
+    ]
+    data = load_claims(native(tmp_path, claims=claims))
+    assert data.warnings == [
+        "claims reference unknown faction 'alpha'; drawn with a fallback colour",
+        "claims reference unknown faction 'zeta'; drawn with a fallback colour",
+    ]
+
+
+@pytest.mark.parametrize("color, from_input", [(None, False), ("#3366cc", True)])
+def test_native_faction_null_colour_is_treated_as_absent(tmp_path, color, from_input):
+    doc = {"format": "mcusd-claims", "version": 1, "claims": [], "factions": [{"id": NORTH, "color": color}]}
+    north = load_claims(write_json(tmp_path / "claims.json", doc)).faction(NORTH)
+    assert north.color_from_input is from_input
+    assert north.color == (parse_color("#3366cc") if from_input else hashed_color(NORTH))
+
+
+def test_native_faction_colour_that_is_not_a_string_is_rejected(tmp_path):
+    doc = {"format": "mcusd-claims", "version": 1, "claims": [], "factions": [{"id": NORTH, "color": 123}]}
+    with pytest.raises(ClaimsError, match=r"factions\[0\]: colour must be '#rrggbb', got 123"):
+        load_claims(write_json(tmp_path / "claims.json", doc))
+
+
+def test_native_source_label_is_stripped(tmp_path):
+    doc = {"format": "mcusd-claims", "version": 1, "source": "  survey 2026  ", "claims": CLAIMS}
+    assert load_claims(write_json(tmp_path / "claims.json", doc)).source_label == "survey 2026"
+
+
+@pytest.mark.parametrize("world_id", [{"value": WORLD, "extra": 1}, {"other": WORLD}])
+def test_only_an_exact_value_wrapper_is_unwrapped(tmp_path, world_id):
+    claims = [{"worldId": world_id, "x": 0, "z": 0, "factionId": NORTH}]
+    with pytest.raises(ClaimsError, match="worldId must be a UUID string"):
+        load_claims(write_json(tmp_path / "api.json", claims))
+
+
+def test_chunk_coordinates_are_not_unwrapped(tmp_path):
+    claims = [{"worldId": WORLD, "x": {"value": 3}, "z": 0, "factionId": NORTH}]
+    with pytest.raises(ClaimsError, match="'x' must be an integer chunk coordinate"):
+        load_claims(write_json(tmp_path / "api.json", claims))
+
+
+@pytest.mark.parametrize("document", [42, "claims", None, True])
+def test_json_scalars_are_not_a_recognised_claims_input(tmp_path, document):
+    with pytest.raises(ClaimsError, match="not a recognised claims input"):
+        load_claims(write_json(tmp_path / "scalar.json", document))
+
+
+def test_claims_are_ordered_by_faction_then_world_then_z_then_x(tmp_path):
+    claims = [
+        {"worldId": WORLD, "x": 5, "z": 1, "factionId": SOUTH},
+        {"worldId": WORLD, "x": 5, "z": 1, "factionId": NORTH},
+        {"worldId": WORLD, "x": -3, "z": 1, "factionId": NORTH},
+        {"worldId": OTHER_WORLD, "x": 9, "z": 9, "factionId": NORTH},
+        {"worldId": WORLD, "x": 0, "z": -2, "factionId": NORTH},
+    ]
+    data = load_claims(write_json(tmp_path / "api.json", claims))
+    # OTHER_WORLD ("1111...") sorts before WORLD ("9c2e...")
+    assert [(c.faction_id, c.world_id, c.z, c.x) for c in data.claims] == [
+        (NORTH, OTHER_WORLD, 9, 9),
+        (NORTH, WORLD, -2, 0),
+        (NORTH, WORLD, 1, -3),
+        (NORTH, WORLD, 1, 5),
+        (SOUTH, WORLD, 1, 5),
+    ]
+
+
+def test_empty_claims_select_nothing_without_warning(tmp_path):
+    data = load_claims(write_json(tmp_path / "api.json", []))
+    assert data.world_ids() == []
+    assert data.select_world(None) == []
+    assert data.select_world(WORLD) == []
+    assert data.warnings == []
+
+
+def test_select_world_without_uuid_returns_a_copy(tmp_path):
+    data = load_claims(native(tmp_path))
+    selected = data.select_world(None)
+    selected.clear()
+    assert len(data.claims) == 3
