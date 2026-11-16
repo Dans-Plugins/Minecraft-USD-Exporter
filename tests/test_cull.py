@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from mcusd.blocks import BlockCatalogue, BlockIdTable
-from mcusd.cull import cull_region, visible_mask
+from mcusd.blocks import AIR_IDS, BlockCatalogue, BlockIdTable
+from mcusd.cull import SLAB, block_luts, cull_region, visible_mask
 from mcusd.select import BBox, ChunkSource, RegionVolume, iter_region_volumes
 from mcusd.world.layout import locate
 from tests.nbt_builders import write_world
@@ -163,3 +163,122 @@ def test_tall_volume_is_processed_in_slabs(tmp_path):
     results, kept = export(world_with(tmp_path, cells), BBox(0, -64, 0, 2, 319, 2))
     assert (1, 50, 1) not in kept and (1, 0, 1) not in kept  # interior column culled
     assert len(kept) == 3 * 3 * 164 - 164 + 2  # all but the core column; its two caps stay
+
+
+SIX = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
+
+
+def hand_volume(core, halo, cells, region=(0, 0)):
+    """A region volume built without a world: ``cells`` maps absolute ``(x, y, z)`` to a block ID; the rest is air."""
+    table = BlockIdTable()
+    extended = core.expand(halo)
+    ids = np.zeros(extended.shape, dtype=np.uint16)
+    for (x, y, z), block_id in cells.items():
+        ids[y - extended.y1, z - extended.z1, x - extended.x1] = table.index(block_id)
+    return RegionVolume(*region, core, halo, ids, 0, table)
+
+
+def box_cells(box, block_id=STONE):
+    return {(x, y, z): block_id for x in range(box.x1, box.x2 + 1)
+            for y in range(box.y1, box.y2 + 1) for z in range(box.z1, box.z2 + 1)}
+
+
+def brute_force(volume, catalogue):
+    """Per-block reference culler: visible blocks in Y, Z, X order, plus the hidden and air counts."""
+    opaque = [catalogue.info(b).opaque for b in volume.table.ids]
+    ox, oy, oz = volume.origin
+
+    def at(x, y, z):
+        return int(volume.ids[y - oy, z - oz, x - ox])
+
+    core = volume.core
+    kept, hidden, air = [], 0, 0
+    for y in range(core.y1, core.y2 + 1):
+        for z in range(core.z1, core.z2 + 1):
+            for x in range(core.x1, core.x2 + 1):
+                block = at(x, y, z)
+                if opaque[block] and all(opaque[at(x + dx, y + dy, z + dz)] for dx, dy, dz in SIX):
+                    hidden += 1
+                elif volume.table[block] in AIR_IDS:
+                    air += 1
+                else:
+                    kept.append(((x, y, z), block))
+    return kept, hidden, air
+
+
+def test_all_air_volume_yields_typed_empty_arrays():
+    core = BBox(0, 0, 0, 2, 2, 2)
+    result = cull_region(hand_volume(core, 1, {}), BlockCatalogue())
+    assert result.positions.shape == (0, 3) and result.positions.dtype == np.int32
+    assert result.block_ids.shape == (0,) and result.block_ids.dtype == np.uint16
+    assert (result.kept, result.culled, result.air) == (0, 0, core.volume)
+
+
+@pytest.mark.parametrize(
+    "inner, outer, kept, culled",
+    [
+        (STONE, AIR, 0, 27),  # the inner halo layer encloses every core block
+        (AIR, STONE, 26, 1),  # the outer halo layer is ignored: only the core's centre is enclosed
+    ],
+)
+def test_a_wider_halo_uses_only_its_innermost_layer(inner, outer, kept, culled):
+    core = BBox(0, 0, 0, 2, 2, 2)
+    cells = box_cells(core.expand(2), outer)
+    cells.update(box_cells(core.expand(1), inner))
+    cells.update(box_cells(core))
+    result = cull_region(hand_volume(core, 2, cells), BlockCatalogue())
+    assert (result.kept, result.culled) == (kept, culled)
+
+
+def test_positions_are_absolute_and_ordered_y_then_z_then_x():
+    core = BBox(-3, -64, -5, -2, -63, -4)
+    result = cull_region(hand_volume(core, 1, box_cells(core), region=(-1, -1)), BlockCatalogue())
+    assert (result.region_x, result.region_z) == (-1, -1)
+    assert result.positions.tolist() == [[x, y, z] for y in (-64, -63) for z in (-5, -4) for x in (-3, -2)]
+
+
+@pytest.mark.parametrize("halo", [1, 2])
+def test_random_volume_matches_a_per_block_reference(halo):
+    """Mixed opaque, transparent and air blocks over a core taller than one slab."""
+    core = BBox(-2, -64, 510, 1, -64 + SLAB + 5, 513)
+    extended = core.expand(halo)
+    volume = hand_volume(core, halo, {})
+    for block_id in (STONE, "minecraft:glass", "minecraft:cave_air"):
+        volume.table.index(block_id)
+    rng = np.random.default_rng(11)
+    volume.ids = rng.choice(4, size=extended.shape, p=[0.2, 0.6, 0.1, 0.1]).astype(np.uint16)
+    catalogue = BlockCatalogue()
+    result = cull_region(volume, catalogue)
+    kept, hidden, air = brute_force(volume, catalogue)
+    assert hidden > 0 and air > 0 and kept  # every branch of the reference is exercised
+    assert result.positions.tolist() == [list(p) for p, _ in kept]
+    assert result.block_ids.tolist() == [b for _, b in kept]
+    assert (result.culled, result.air) == (hidden, air)
+    assert result.kept + result.culled + result.air == core.volume
+
+
+def test_opacity_override_disables_culling():
+    core = BBox(0, 0, 0, 2, 2, 2)
+    volume = hand_volume(core, 1, box_cells(core.expand(1)))
+    assert cull_region(volume, BlockCatalogue()).culled == 27
+    result = cull_region(volume, BlockCatalogue({STONE: {"opaque": False}}))
+    assert (result.kept, result.culled, result.air) == (27, 0, 0)
+
+
+def test_block_luts_follow_table_order():
+    table = BlockIdTable()
+    for block_id in (STONE, "minecraft:cave_air", "minecraft:glass", "mymod:mystery_block", "minecraft:void_air"):
+        table.index(block_id)
+    opaque, air = block_luts(table, BlockCatalogue())
+    assert opaque.dtype == bool and air.dtype == bool
+    assert opaque.tolist() == [False, True, False, False, False, False]
+    assert air.tolist() == [True, False, True, False, False, True]
+
+
+def test_block_luts_apply_overrides_except_to_air():
+    table = BlockIdTable()
+    table.index("minecraft:glass")
+    catalogue = BlockCatalogue({"minecraft:glass": {"opaque": True}, AIR: {"opaque": True}})
+    opaque, air = block_luts(table, catalogue)
+    assert opaque.tolist() == [False, True]  # air is never opaque, even when overridden
+    assert air.tolist() == [True, False]
